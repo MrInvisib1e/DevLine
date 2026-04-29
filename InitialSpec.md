@@ -70,12 +70,15 @@ Each branch gets an isolated memory snapshot:
       memory.json      # source of truth — owned by df-sync
       memory.md        # auto-generated render — read by skills
       slices.json      # active slice plan — written by feature skill, consumed by df-test
-      prd.md           # approved PRD — written on approval, kept after feature completes
+      prd.md           # approved PRD — kept until branch cleanup archives it
     feature-comments/
       memory.json
       memory.md
       slices.json
       prd.md
+  prd-archive/         # permanent PRD record — survives branch deletion
+    feature-comments_2026-04-29.md
+    main_2026-04-15.md
   active -> branches/feature-comments/    # symlink, swapped on checkout
 ```
 
@@ -124,6 +127,15 @@ Skills always read from `.devflow/active/` — they are branch-unaware by design
     "custom": []
   },
   "edge_staleness_threshold": 30,
+  "edge_rel_types": {
+    "builtin": ["depends_on", "uses", "persisted_in", "implements", "emits", "handles"],
+    "custom": []
+  },
+  "graph_limits": {
+    "max_nodes": 2000,
+    "max_edges": 10000,
+    "prune_min_age_commits": 90
+  },
   "classifiers": {
     "entities":    ["**/Entities/*.cs", "**/Models/*.cs", "**/Domain/**/*.cs"],
     "routes":      ["*Controller.cs", "*Endpoint.cs", "**/pages/**/*.svelte", "**/routes/**/*.ts"],
@@ -135,7 +147,7 @@ Skills always read from `.devflow/active/` — they are branch-unaware by design
 }
 ```
 
-> **Note:** `node_types` and `edge_staleness_threshold` are consumed by the graph pipeline (`df-sync`, `nodes.json`, `edges.json`). `conventions` and `architecture` classifiers update `memory.json` directly; all others classify into the graph.
+> **Note:** `node_types`, `edge_staleness_threshold`, `edge_rel_types`, and `graph_limits` are consumed by the graph pipeline (`df-sync`, `nodes.json`, `edges.json`). `edge_rel_types` is a closed set — any edge write with an unrecognised `rel` value is rejected with a warning. `graph_limits.prune_min_age_commits` controls the minimum age a stale node must reach before it is eligible for pruning when the graph exceeds `max_nodes`/`max_edges`. `conventions` and `architecture` classifiers update `memory.json` directly; all others classify into the graph.
 
 ---
 
@@ -229,9 +241,22 @@ At the end of every `post-checkout` run, the script prunes stale memory:
 
 ```bash
 # Canonicalize all local branch names, compare against branches/* directories
-# Any directory with no matching local branch → rm -rf
 git branch --list | sed 's|/|__|g' | ... compare against branches/*
+
+# For each stale branch directory (no matching local branch):
+#   1. Archive prd.md before deletion — permanent record
+#   2. Then remove the branch directory
+for STALE_DIR in branches/<stale-branch>/; do
+  if [ -f "$STALE_DIR/prd.md" ]; then
+    mkdir -p .devflow/prd-archive/
+    ARCHIVE_NAME="${STALE_BRANCH}_$(date +%Y-%m-%d).md"
+    cp "$STALE_DIR/prd.md" ".devflow/prd-archive/$ARCHIVE_NAME"
+  fi
+  rm -rf "$STALE_DIR"
+done
 ```
+
+`prd-archive/` is never pruned automatically. It is gitignored alongside the rest of `.devflow/`. `df-export` includes the full archive in its output when `--include-prd-archive` is passed.
 
 ### Degraded Mode
 
@@ -241,6 +266,7 @@ Every skill invocation starts by checking for `.devflow/active/memory.json`.
 - If `config.json` `"dirty": true`: a prior sync was interrupted. Skill re-runs `df-sync` before proceeding — never reasons on a partial state.
 - If `last_synced` SHA diverges from HEAD: skill pauses, runs `df-sync`, then continues.
 - If `memory_conflicts.json` exists: skill surfaces conflicts before any reasoning begins.
+- If `graph_conflicts.json` exists: skill surfaces conflicted nodes and edges (with both `intent` values) before any reasoning begins. Skills must not reason on a node whose `intent` is contested. Developer resolves by accepting one value or writing a new one; `graph_conflicts.json` is deleted on resolution.
 
 No silent degradation.
 
@@ -469,18 +495,19 @@ After all slices pass, integration tests pass, and no blocking review findings r
 
 `/fix "comments endpoint returns 500 on empty body"`:
 
-1. Read `memory.md` — understand routes and entities without codebase spelunking
-2. Form a hypothesis before reading any code
-3. Read only the files the hypothesis points to
-4. Fix, run `df-test` if a slice exists, otherwise run `config.json` `test_cmd`
-5. If wrong hypothesis: revise, repeat — max 3 cycles (one cycle = one hypothesis + reads + fix attempt)
-6. If still failing after 3 cycles: surface findings and diagnosis — do not attempt a fourth cycle
+1. Run `df-explain` on the failing endpoint or entity — use the inbound edge list to identify all connected nodes before reading any code
+2. Read `memory.md` — understand the broader context (architecture, conventions) without codebase spelunking
+3. Form a hypothesis before reading any code
+4. Read only the files the hypothesis and `df-explain` output point to
+5. Fix, run `df-test` if a slice exists, otherwise run `config.json` `test_cmd`
+6. If wrong hypothesis: revise, repeat — max 3 cycles (one cycle = one hypothesis + reads + fix attempt)
+7. If still failing after 3 cycles: surface findings and diagnosis — do not attempt a fourth cycle
 
 ---
 
 ## 10. Review Skill
 
-`/review` reads `memory.md` (specifically architecture and conventions sections) before looking at any diff, then reads the full diff. Reviews against actual project conventions — not generic best practices. Flags:
+`/review` reads `memory.md` (specifically architecture and conventions sections) before looking at any diff, then reads the full diff, then runs `df-explain` on every changed node. Reviews against actual project conventions — not generic best practices. Flags:
 
 - Calls that violate the service communication pattern (e.g., direct HTTP where async messaging is the convention)
 - DI lifetime mismatches
@@ -488,6 +515,7 @@ After all slices pass, integration tests pass, and no blocking review findings r
 - Missing test coverage for a new vertical slice
 - Cross-service contract changes without corresponding memory update
 - Any file touched that has no classifier in `config.json` (triggers a prompt to run `df-sync`)
+- Inbound nodes that weren't touched by the PR but whose behaviour may have changed (surfaced from `df-explain` output)
 
 ---
 
@@ -537,11 +565,12 @@ source ~/.zshrc
 1. Detects stack from project files
 2. Scans architecture patterns
 3. Generates `memory.json` with real content (not templates) using AI
-4. Generates `memory.md` from `memory.json`
-5. Creates `config.json` with current HEAD SHA, `schema_version: 1`, and inferred classifiers
-6. Installs `post-checkout` hook
-7. Prompts for workspace name and registers the repo
-8. Creates `.gitignore` entry for `.devflow/`
+4. Scans classifiers, builds initial `nodes.json` and `edges.json` using static analysis for structure + AI (batched) for intent
+5. Generates `memory.md` from `memory.json` + `nodes.json` + `edges.json`
+6. Creates `config.json` with current HEAD SHA, `schema_version: 1`, and inferred classifiers
+7. Installs `post-checkout` hook
+8. Prompts for workspace name and registers the repo
+9. Creates `.gitignore` entry for `.devflow/`
 
 ---
 
