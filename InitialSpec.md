@@ -7,11 +7,12 @@
 
 ## 1. Vision
 
-DevFlow is a Claude Code skill library that makes AI behave like a senior engineer — not an order-taker. It is stack-agnostic, general-purpose, and built around three principles:
+DevFlow is a Claude Code skill library that makes AI behave like a senior engineer — not an order-taker. It is stack-agnostic, general-purpose, and built around four principles:
 
-1. **Domain first** — interrogate intent and constraints before writing a line of code
-2. **Vertical slices** — every feature increment spans all needed layers and produces a testable result
-3. **Accurate context** — AI maintains a machine-readable codebase model per developer, per branch, self-correcting as code evolves
+1. **PRD first** — challenge and document intent before any planning or code
+2. **Domain before implementation** — interrogate technical constraints and edge cases informed by the PRD
+3. **Vertical slices** — every feature increment is a complete user-facing capability spanning all needed layers, tested and reviewed independently
+4. **Accurate context** — AI maintains a machine-readable codebase model per developer, per branch, self-correcting as code evolves
 
 ---
 
@@ -20,11 +21,12 @@ DevFlow is a Claude Code skill library that makes AI behave like a senior engine
 | Skill | Trigger | Purpose |
 |---|---|---|
 | `init` | Once per repo | Scan codebase, build memory, register in workspace |
-| `domain` | Before any feature | Expert interrogation — intent, edge cases, constraints |
-| `feature` | Main coding loop | Vertical slice execution with per-slice test gates |
+| `feature` | Main coding loop | PRD → domain interrogation → vertical slice DAG → per-slice agents → integration test → final review |
 | `mem-sync` | After every commit | Diff-based memory update — patches `memory.json`, `nodes.json`, `edges.json`, regenerates `memory.md` |
 | `fix` | Failing test or bug | Systematic debug using live memory context |
 | `review` | Before merge | Architecture-aware code review against memory conventions |
+
+> **Note:** `domain` is no longer a standalone skill. It is Phase 1 of the `feature` skill, informed by the approved PRD. Invoking `/domain` alone is unsupported — context without a plan is not actionable.
 
 ---
 
@@ -68,10 +70,12 @@ Each branch gets an isolated memory snapshot:
       memory.json      # source of truth — owned by df-sync
       memory.md        # auto-generated render — read by skills
       slices.json      # active slice plan — written by feature skill, consumed by df-test
+      prd.md           # approved PRD — written on approval, kept after feature completes
     feature-comments/
       memory.json
       memory.md
       slices.json
+      prd.md
   active -> branches/feature-comments/    # symlink, swapped on checkout
 ```
 
@@ -267,25 +271,108 @@ Multi-repo microservices are linked into a named workspace. Registry lives on th
 
 ## 8. Feature Execution Flow
 
+### Phase 0 — PRD
+
+Always the first phase. The feature skill interrogates the developer with critical, direct questions — one at a time — until it has enough context to draft a complete PRD. The AI does not accept vague answers and does not move on until ambiguity is resolved.
+
+**Interrogation style:** the AI is sceptical by default. It challenges assumptions, surfaces contradictions, and asks "why" repeatedly. It does not validate the developer's idea — it stress-tests it. A question is not closed until the answer is specific enough to write a testable acceptance criterion.
+
+**Suggested answers:** every question includes 2–3 best-practice suggestions derived from the stack, the memory graph, and the domain. The developer picks one, combines them, or overrides with their own answer. Suggestions are never the default — the developer must make an explicit choice.
+
+**Questions cover:**
+
+| Area | Example question with suggestions |
+|---|---|
+| Problem | "What breaks or can't be done today without this? [A] User has no way to respond to stories. [B] Moderation team can't manage user-generated content. [C] Something else." |
+| User | "Who is the primary actor? [A] Authenticated end user. [B] Admin/moderator. [C] External API consumer." |
+| Success | "How do we know this is done? [A] User can create and see a comment without a page reload. [B] E2E test passes for create/read/delete flow. [C] Something else." |
+| Failure states | "What should happen when the user submits an empty comment? [A] Client-side validation blocks submission. [B] API returns 422 with field error. [C] Silent discard." |
+| Out of scope | "Should comment editing be in scope? [A] No — read-only after submit. [B] Yes, within 5 minutes. [C] Out of scope for now, separate feature." |
+| Constraints | "Any systems this must integrate with that aren't in memory? [A] No. [B] Yes — specify." |
+
+The AI stops asking when all six areas have specific, unambiguous answers — typically 5–9 questions total.
+
+**PRD structure written to `.devflow/active/prd.md` on approval:**
+
+```markdown
+# PRD — <feature name>
+**Branch:** feature/comments
+**Date:** 2026-04-29
+**Status:** Approved
+
+## Problem
+One paragraph. The user problem, not the technical solution.
+
+## User
+Who this is for and what they can do that they couldn't before.
+
+## Success Criteria
+Numbered list. Each item is observable and maps to a slice result.
+
+## Out of Scope
+Explicit exclusions. Anything not listed is in scope.
+
+## Edge Cases & Failure States
+Bulleted list. Each maps to a test case in the slice plan.
+
+## Constraints
+Deadlines, dependencies, systems to integrate with, things that cannot change.
+```
+
+No slice planning starts until the developer types an explicit approval. `prd.md` is kept after the feature completes — it is a permanent record of what was built and why.
+
+---
+
 ### Phase 1 — Domain Interrogation
 
-Always runs before implementation. The `domain` skill asks expert questions about intent, constraints, and edge cases:
+Runs after PRD approval. Shorter than before — the PRD already captured intent and constraints. This phase focuses on **technical decisions** the PRD doesn't answer.
 
-- *"Why does this need to exist — what user problem does it solve?"*
-- *"What happens when the user is offline / unauthenticated / has no data?"*
-- *"Is there existing code that covers 70% of this? Should we extend it or add new?"*
-- *"Who else consumes this data — are there downstream services to notify?"*
+The AI reads `memory.md` and asks targeted questions about implementation approach, using the same style as Phase 0: one question at a time, critical and direct, with best-practice suggestions on every question.
+
+Typical questions:
+
+- *"The PRD says comments are soft-deletable. The graph shows User is hard-deleted after 90 days. What should happen to comments when the author is deleted? [A] Orphan the comment, show '[deleted]'. [B] Cascade-delete all comments. [C] Anonymise comment body."*
+- *"Is there existing code that covers 70% of this? [A] Yes — CommentService in memory. [B] No — greenfield. [C] Partial — needs extension."*
+- *"Who else consumes comment data downstream? [A] FeedService (already in graph). [B] NotificationService (not in graph — add to constraints). [C] Nobody."*
 
 Stops when enough context exists to make confident architectural decisions — typically 3–5 questions.
 
 ### Phase 2 — Slice Planning
 
-AI reads `memory.md` and decomposes the feature into vertical slices. Each slice must:
+AI reads `prd.md` and `memory.md` and decomposes the feature into vertical slices.
 
-- Span **all layers** it needs (not one layer per slice)
-- Produce an **observable result** — something you can call, click, or assert on
-- Have a declared **test command** that verifies that result
-- Declare its **dependencies** on other slices — enabling parallel execution where possible
+#### Vertical Slice Definition
+
+A vertical slice is a **complete user-facing capability** — not a layer, not a technical task. It:
+
+1. Implements **one thing a user can do** — described in plain language ("User can create a comment")
+2. Spans **every layer it needs** to deliver that capability — never stops at a layer boundary
+3. Produces a **user-observable result** that maps to a PRD success criterion
+4. Is **independently testable** without other slices being implemented first
+
+**Rejected slice forms (enforced at planning time):**
+
+| Form | Rejection reason |
+|---|---|
+| "Add Comment table migration" | Layer-only — no user outcome |
+| "Implement CommentService CRUD" | Layer-only — split into Create / Read / Update / Delete |
+| "Add frontend comment form" | Layer-only — belongs inside the Create slice |
+| "Refactor service layer" | No user outcome — done inline within whichever slice needs it |
+
+A slice that touches only one layer is **always rejected**. The AI merges it into the adjacent slice or re-plans.
+
+**CRUD decomposition pattern:**
+
+For a Comments feature, the correct slice plan is:
+
+| Slice | Capability | Layers | Maps to PRD criterion |
+|---|---|---|---|
+| 1 | User can create a comment | db, entity, service, API, frontend | "User can submit a comment" |
+| 2 | User can read comments on a story | service, API, frontend | "Comments appear below the story" |
+| 3 | User can edit their comment | service, API, frontend | "User can correct a submitted comment" |
+| 4 | User can delete their comment | service, API, frontend | "User can remove their own comment" |
+
+Each slice must:
 
 ```json
 // Written to .devflow/active/slices.json on user approval
@@ -333,41 +420,48 @@ AI reads `memory.md` and decomposes the feature into vertical slices. Each slice
 
 A slice that only touches one layer is rejected — merged into an adjacent slice or split differently. The AI presents the slice plan and waits for explicit approval before executing slice 1.
 
-The full parallel execution model — worktree lifecycle, agent dispatch, merge protocol — is specified in the parallel execution design spec.
+The full parallel execution model — worktree lifecycle, agent dispatch, per-slice test and review agents, and final agents — is specified in the parallel execution design spec.
 
-### Phase 3 — Slice Execution Loop
+### Phase 3 — Slice Execution
 
-Slices are executed in dependency order. Independent slices (no unsatisfied `depends_on`) form a "ready batch" and run in parallel via subagents in isolated git worktrees. Slices with dependencies wait until all their `depends_on` IDs reach `"done"`.
+Slices execute in dependency order. Each slice runs through three dedicated agents in sequence, each with a clean, scoped context (target: under 50k tokens):
 
 ```
-build DAG from depends_on fields → topological batches
+for each batch (topological order from depends_on DAG):
+  if 1 slice: run agents inline (no worktree)
+  if 2+ slices: dispatch per worktree, run agents inside each worktree
 
-for each batch:
-  if 1 slice: execute inline (no worktree)
-  if 2+ slices:
-    check for file overlap via df-explain → serialize conflicts into next batch
-    dispatch subagent per remaining slice in its own worktree
-    wait for all to complete
-    if any FAIL: cancel pending agents, surface findings, stop
-    cherry-pick each worktree's commits onto branch (in slice-id order)
-    remove worktrees
-    run df-sync once for the batch
-  update completed slice statuses to "done" in slices.json
+  per slice:
+    → Implementation Agent   (slice def + memory.md + df-explain output)
+    → Test Agent             (slice def + slice diff only — clean context, gated)
+    → Slice Review Agent     (slice diff + memory.md conventions + df-explain — gated on green)
+
+  on any agent failure: surface findings, halt — do not advance
+  merge batch commits, df-sync once per batch
+```
 
 No moving forward with a red slice. The loop is rigid on this.
-```
 
-### Phase 4 — Code Review
+### Phase 4 — Integration Test
 
-After all slices pass, the code-reviewer subagent fires automatically. It receives the full feature branch diff, `memory.md`, and `df-explain` output for every touched entity. It reviews against project conventions and flags inbound nodes affected but not touched by the PR.
+After all slices reach `"done"`, a dedicated Integration Test Agent fires with a clean context. It runs every slice's `test_cmd` in sequence and writes one end-to-end test that exercises the full feature flow (e.g. create → read → edit → delete). Its job is to verify that slices compose correctly — not that each works in isolation (that was the per-slice test agent's job).
 
-Findings are severity-tagged: `blocking` halts the feature skill until resolved; `warning` and `note` are surfaced but do not block.
+On failure: surfaces which cross-slice interaction broke. Escalates to developer — does not attempt to fix.
 
-The full code-reviewer specification is in the parallel execution design spec.
+### Phase 5 — Final Review
 
-### Phase 5 — Memory Sync
+A dedicated Final Review Agent fires after integration tests pass. It focuses exclusively on cross-slice concerns — per-slice conventions were already reviewed in Phase 3:
 
-After all slices pass and no blocking review findings remain, `df-sync` diffs HEAD vs `last_synced`, runs the hybrid classifier, patches `memory.json`, regenerates `memory.md`, updates `config.json` with the new SHA, and deletes `slices.json`.
+- Cross-slice contract consistency (error shapes, API conventions across Create/Read/Update/Delete)
+- Emergent patterns only visible across the full diff
+- Graph drift — entities touched across multiple slices with conflicting intent
+- Full impact radius — inbound nodes affected by the combined diff
+
+Findings use the same `blocking` / `warning` / `note` severity model. `blocking` halts until resolved, then the Final Review Agent re-runs on the updated diff.
+
+### Phase 6 — Memory Sync
+
+After all slices pass, integration tests pass, and no blocking review findings remain: `df-sync` runs its final pass, `slices.json` is deleted. `prd.md` is kept as a permanent record.
 
 ---
 
