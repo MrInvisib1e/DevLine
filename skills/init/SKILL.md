@@ -14,13 +14,21 @@ Initialize DevFlow memory for the current repository. Drives interactive stack c
 
 ### Step 1 — Scan the repo
 
+Before running the scan, verify `df-init` is on PATH:
+
+```bash
+which df-init
+```
+
+If not found: tell the developer to install DevFlow and add `~/.devflow/bin` to their PATH. Stop.
+
 Run:
 
 ```bash
 df-init --scan
 ```
 
-Parse the JSON output. Extract: `stack_hints`, `classified`, `unclassified`, `branch`, `branch_canonicalized`.
+Parse the JSON output. Extract: `stack_hints`, `classified`, `unclassified`, `branch`, `branch_canonicalized`, `head_sha`.
 
 If the command fails (exit 1):
 - If "Not a git repo": tell the developer to run `/init` inside a git repository. Stop.
@@ -59,7 +67,7 @@ Ask:
   [B] No — standalone repo
 ```
 
-If A: ask for workspace name (e.g. "ovell"). Store as `workspace_name`. Register in `~/.devflow/workspaces/<name>.json` (create the file with `{"name": "<name>", "repos": ["<abs-repo-path>"]}` if it doesn't exist; append this repo path if it does).
+If A: ask for workspace name (e.g. "ovell"). Store as `workspace_name`. Register in `~/.devflow/workspaces/<name>.json` (create the file with `{"name": "<name>", "repos": ["<abs-repo-path>"]}` if it doesn't exist; if it does exist, read the JSON file, add this repo's absolute path to the `repos` array, then write the updated JSON back).
 
 If B: set `workspace_name = null`.
 
@@ -96,7 +104,7 @@ Collect any typed assignments. These become `confidence: "manual"` nodes.
 
 ### Step 6 — AI: intent + classification + edges
 
-**DEVFLOW_AI_MOCK=1 mode:** If `DEVFLOW_AI_MOCK` environment variable equals `1`, read from `~/.devflow/tests/fixtures/ai-responses/df-init-response.json` instead of calling the API. Parse the same JSON structure.
+**DEVFLOW_AI_MOCK=1 mode:** If `DEVFLOW_AI_MOCK` environment variable equals `1`, read from `~/.devflow/tests/fixtures/ai-responses/df-init-response.json` instead of calling the API. The fixture file contains two top-level keys: `call1` (an array — the intent/classification/edges response) and `call2` (an object with `stack`, `architecture`, and `conventions` keys — the architecture/conventions response). Use `call1` in place of the real Call 1 response and `call2` in place of the real Call 2 response.
 
 **Real mode:**
 
@@ -130,7 +138,7 @@ On timeout: wait 5 seconds, retry once. On second failure: write nodes without `
 
 **Call 2 — Architecture/conventions for memory.json:**
 
-Second call with the `architecture` and `conventions` classifier files:
+Second call using the files listed in `stack_hints.files_found` — these are the files that inform stack, architecture, and conventions (e.g. `Program.cs`, `vite.config.ts`, `appsettings.json`, `.editorconfig`). Pass their full content:
 
 ````
 Based on these files from a <stack_runtime> + <stack_frontend> project, infer:
@@ -158,9 +166,12 @@ Build the patch JSON to pipe into `df-init --write-memory`:
   "config": {
     "service": "<repo-directory-name>",
     "workspace": "<workspace_name or null>",
-    "stack": "<stack_runtime>",
-    "test_cmd": "<test_cmd>",
-    "last_synced": "<head_sha from scan>",
+    "stack": {
+      "runtime": "<stack_runtime>",
+      "frontend": "<stack_frontend>",
+      "test_cmd": "<test_cmd>"
+    },
+    "last_synced": "<head_sha>",
     "schema_version": 1,
     "node_types": { "custom": ["<any custom types collected in steps 4-5>"] },
     "edge_staleness_threshold": 30,
@@ -174,7 +185,12 @@ Build the patch JSON to pipe into `df-init --write-memory`:
   "memory": {
     "schema_version": 1,
     "last_synced": "<head_sha>",
-    "stack": "<from call 2>",
+    "stack": {
+      "runtime": "<stack_runtime>",
+      "frontend": "<stack_frontend>",
+      "test_cmd": "<test_cmd>",
+      "key_dependencies": "<from call 2 stack.key_dependencies>"
+    },
     "architecture": "<from call 2>",
     "conventions": "<from call 2>"
   },
@@ -207,7 +223,9 @@ Build the patch JSON to pipe into `df-init --write-memory`:
 }
 ```
 
-**Node ID format:** `<type>:<file-path-slug>` where file-path-slug is the file's relative path from repo root with `/` replaced by `.` and the extension stripped. Example: `Entities/Comment.cs` → `entity:Entities.Comment`.
+**Node ID format:** `<type>:<file-path-slug>` where file-path-slug is the file's relative path from repo root with `/` replaced by `.` and the last extension stripped (strip only the last extension, e.g. `slug.test.ts` → `slug.test`, `Auth.svelte.ts` → `Auth.svelte`). Example: `Entities/Comment.cs` → `entity:Entities.Comment`.
+
+**Edge `from` field:** The `from` field is the node ID of the file that the edge was returned on in Call 1 (the file entry whose `edges` array contained this edge). Derive it using the same ID formula applied to that file's path.
 
 **Edge `to` field:** Map `to_file` paths from call 1 to node IDs using the same ID formula.
 
@@ -230,11 +248,11 @@ If exit code is 1: show the error output and stop.
 [DevFlow] Initialization complete.
 
   ✓ .devflow/config.json written
-  ✓ .devflow/branches/<branch>/memory.json written
-  ✓ .devflow/branches/<branch>/nodes.json written (<N> nodes)
-  ✓ .devflow/branches/<branch>/edges.json written (<N> edges)
-  ✓ .devflow/branches/<branch>/memory.md generated
-  ✓ .devflow/active symlink → branches/<branch>/
+  ✓ .devflow/branches/<branch_canonicalized>/memory.json written
+  ✓ .devflow/branches/<branch_canonicalized>/nodes.json written (<N> nodes)
+  ✓ .devflow/branches/<branch_canonicalized>/edges.json written (<N> edges)
+  ✓ .devflow/branches/<branch_canonicalized>/memory.md generated
+  ✓ .devflow/active symlink → branches/<branch_canonicalized>/
   ✓ .git/hooks/post-commit installed
   ✓ .git/hooks/post-checkout installed
 
