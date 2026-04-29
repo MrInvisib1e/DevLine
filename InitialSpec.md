@@ -509,13 +509,21 @@ After all slices pass, integration tests pass, and no blocking review findings r
 2. Read `memory.md` — understand the broader context (architecture, conventions) without codebase spelunking
 3. Form a hypothesis before reading any code
 4. Read only the files the hypothesis and `df-explain` output point to
-5. Fix, run `df-test` if a slice exists, otherwise run `config.json` `test_cmd`
+5. Fix, then determine the test command:
+   - If `.devflow/active/slices.json` exists **and** the `feature` field in `slices.json` matches the current branch name **and** `integration_status` is not `"pass"`: run `df-test <slice-id>` for the slice most likely affected by the fix.
+   - Otherwise: run the `test_cmd` from `config.json`. A `slices.json` from a prior completed or abandoned feature must not be used — it may reference a stale test command for a deleted test.
 6. If wrong hypothesis: revise, repeat — max 3 cycles (one cycle = one hypothesis + reads + fix attempt)
 7. If still failing after 3 cycles: surface findings and diagnosis — do not attempt a fourth cycle
 
 ---
 
 ## 10. Review Skill
+
+**Pre-review checks:** Before reading `memory.md` or the diff, `/review` checks for:
+
+- `graph_conflicts.json` — if present, surfaces all conflicted nodes and their contested `intent` values. The review proceeds but marks any finding that touches a conflicted node with a `[contested-intent]` tag, since the conventions being checked may themselves be unresolved. The developer should run `df-resolve` before relying on review output for affected nodes.
+- `config.json` `"dirty": true` — re-runs `df-sync` before proceeding.
+- `last_synced` SHA divergence from HEAD — re-runs `df-sync` before proceeding.
 
 `/review` reads `memory.md` (specifically architecture and conventions sections) before looking at any diff, then reads the full diff, then runs `df-explain` on every changed node. Reviews against actual project conventions — not generic best practices. Flags:
 
