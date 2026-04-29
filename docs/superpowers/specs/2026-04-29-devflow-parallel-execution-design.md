@@ -292,13 +292,15 @@ if PASS:
   commit: feat(<feature>): slice <id> — <name> [tests]
   signal PASS to main session
 
-if FAIL:
+if FAIL (cycle 1):
   diagnose from diff + test output
   fix tests (and implementation if the diff is the root cause)
   run df-test <slice-id> again
   if PASS: commit fix + tests, signal PASS
-  if FAIL again: signal FAIL with findings — do not attempt third fix
+  if FAIL (cycle 2): signal FAIL with findings — do not attempt a third fix
 ```
+
+**Cycle limit:** 2 fix cycles maximum. This is intentionally tighter than the `/fix` skill's 3-cycle limit (§9 of InitialSpec). Rationale: slice agents operate with a narrow, well-scoped context and a single declared result — if two automated cycles don't resolve it, the issue is structural (slice definition too broad, implementation agent produced bad output, test setup wrong) and requires developer judgment. The `/fix` skill's 3-cycle limit is appropriate for open-ended debugging where additional passes meaningfully explore new hypotheses.
 
 The test agent never receives `memory.md` — it reasons only from what the slice is supposed to do and what the code actually does. Keeping its context small keeps its reasoning sharp.
 
@@ -383,7 +385,13 @@ write one end-to-end test exercising the full feature flow
   (e.g. for CRUD: create → read → edit → delete in a single test)
 run the e2e test
 if PASS: commit e2e test, signal PASS
-if FAIL: surface which cross-slice interaction broke, escalate to developer — do not attempt fix
+if FAIL:
+  surface which cross-slice interaction broke with findings
+  set slices.json "integration_status": "failed"
+  escalate to developer — do not attempt a fix
+  the developer fixes the cross-slice interaction in the main worktree, commits, then runs
+  /feature resume — resume detects integration_status "failed" and re-dispatches the
+  Integration Test Agent only (§14), without re-running slice agents
 ```
 
 The integration test agent does not re-test slices in isolation — that was the per-slice test agent's job. It tests composition.
