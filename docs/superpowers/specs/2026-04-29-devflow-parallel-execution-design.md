@@ -477,6 +477,68 @@ Phase 6 — Memory Sync           df-sync final pass, delete slices.json, keep p
 
 ---
 
+## 15. Agent Dispatch Mechanism
+
+All per-slice agents (Implementation, Test, Slice Review), the Integration Test Agent, and the Final Review Agent are dispatched as **Claude Code subagents** via the Claude Agent SDK `Task` tool. Each is a separate, isolated session with no shared conversation history.
+
+### Dispatch call shape
+
+The `feature` skill dispatches each agent by invoking the `Task` tool with:
+
+```
+subagent_type: "general-purpose"
+prompt: <agent-specific prompt — see §7, §8, §9, §10, §11>
+isolation: "worktree"    ← for slice agents during a parallel batch
+                          omit for Integration Test and Final Review agents (main worktree)
+```
+
+The prompt includes all inputs listed in the agent's Inputs table as **literal content** — never as file paths for the subagent to read itself. The `feature` skill reads the files, injects the content, and then dispatches. This keeps each agent context-complete and prevents file-read failures in subagent worktrees.
+
+### Concurrency
+
+Parallel slices in the same batch are dispatched in a single message with multiple `Task` tool calls — the SDK executes them concurrently. The `feature` skill waits for all agents in a batch to return before proceeding to the merge step.
+
+### Agent PIDs
+
+When an agent is dispatched, the `feature` skill records its PID in `batch.lock` under `agent_pids`. This is used by the stale recovery mechanism (§4).
+
+### Agent return contract
+
+Every agent returns a single structured message:
+
+```json
+{
+  "status": "PASS" | "FAIL",
+  "commit_sha": "<sha>",      // present on PASS only
+  "findings": "<text>",       // present on FAIL; severity-tagged for review agents
+  "slice_id": 1
+}
+```
+
+The `feature` skill reads this return value to decide whether to advance the slice status, surface findings, or halt.
+
+### Token budget enforcement
+
+If the assembled prompt for an agent exceeds the agent's token target (§7–§11), the `feature` skill applies the reduction strategy specified for that agent before dispatching. It never dispatches a prompt that exceeds 100k tokens — it surfaces a warning to the developer and halts rather than truncating silently past the defined strategy.
+
+### integration_status and final_review_status in slices.json
+
+`slices.json` tracks two additional top-level fields after Phase 3 completes:
+
+```json
+{
+  "feature": "comments",
+  "approved_at": "...",
+  "slices": [...],
+  "integration_status": "pending" | "pass" | "failed",
+  "final_review_status": "pending" | "pass" | "blocked"
+}
+```
+
+These fields are written by the `feature` skill as the Integration Test Agent and Final Review Agent complete. They gate `/feature resume` so it knows which Phase to re-enter (§14).
+
+---
+
 ## 14. Feature Resume
 
 `/feature resume` is the re-entry point after any developer-resolved interruption during Phase 3 (cherry-pick conflict, blocked slice, integration test failure). It never restarts the full feature — it resumes from the last stable state recorded in `slices.json`.
