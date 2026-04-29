@@ -286,13 +286,15 @@ _build_patch() {
   bash -c "cd '$REPO' && printf '%s' '$patch' | '$DF_INIT' --write-memory"
 
   # Create a second branch and init it
-  (cd "$REPO" && git checkout -b other-branch --quiet)
+  # Use core.hooksPath=/dev/null to avoid triggering the post-checkout hook
+  # (df-sync is not in PATH in the test environment — this test is about --reset, not hooks)
+  (cd "$REPO" && git -c core.hooksPath=/dev/null checkout -b other-branch --quiet)
   local patch2
   patch2=$(_build_patch "$REPO")
   bash -c "cd '$REPO' && printf '%s' '$patch2' | '$DF_INIT' --write-memory"
 
   # Reset back on main
-  (cd "$REPO" && git checkout main --quiet)
+  (cd "$REPO" && git -c core.hooksPath=/dev/null checkout main --quiet)
   bash -c "cd '$REPO' && '$DF_INIT' --reset"
 
   # other-branch should still have its files
