@@ -568,9 +568,10 @@ source ~/.zshrc
 4. Scans classifiers, builds initial `nodes.json` and `edges.json` using static analysis for structure + AI (batched) for intent
 5. Generates `memory.md` from `memory.json` + `nodes.json` + `edges.json`
 6. Creates `config.json` with current HEAD SHA, `schema_version: 1`, and inferred classifiers
-7. Installs `post-checkout` hook
-8. Prompts for workspace name and registers the repo
-9. Creates `.gitignore` entry for `.devflow/`
+7. Installs `post-checkout` hook — swaps `active` symlink on branch switch and triggers `df-sync --branch-switch`
+8. Installs `post-commit` hook — invokes `mem-sync` after every commit to keep memory current with HEAD
+9. Prompts for workspace name and registers the repo
+10. Creates `.gitignore` entry for `.devflow/`
 
 ---
 
