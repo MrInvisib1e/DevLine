@@ -1,4 +1,5 @@
 # DevFlow — Design Spec
+**Version:** 2.0  
 **Date:** 2026-04-29  
 **Status:** Revised  
 **Approach:** Option A — Skills + Shell Scripts
@@ -305,6 +306,19 @@ Multi-repo microservices are linked into a named workspace. Registry lives on th
 
 `df-workspace read <workspace> <service> <memory-file>` returns a sibling service's `memory.md` as a string. This is the **only** cross-repo operation. Scripts must never write to a path outside the current repo's `.devflow/` directory — enforced by checking that the resolved path starts with `$PWD/.devflow/` before any write.
 
+### Cross-workspace failure modes
+
+| Failure | Behaviour |
+|---|---|
+| Registry file missing (`~/.devflow/workspaces/<name>.json` not found) | Print `[DevFlow] Workspace "<name>" not registered. Run df-workspace add <name> <path>.` Skip cross-workspace loading; proceed with local memory only. |
+| Sibling path in registry does not exist on disk | Print `[DevFlow] ⚠ Sibling "<service>" path not found: <path>. Skipping.` Continue with remaining siblings. |
+| Sibling `.devflow/` directory missing (repo not initialized) | Print `[DevFlow] ⚠ Sibling "<service>" has no .devflow/ directory. Run df-init in that repo first. Skipping.` Continue with remaining siblings. |
+| Sibling `memory.md` exists but `last_synced` SHA is >20 commits behind sibling's HEAD | Print `[DevFlow] ⚠ Sibling "<service>" memory is stale (<last_synced_sha> vs HEAD <head_sha>, <N> commits behind). Using stale memory — run df-sync in that repo to refresh.` Inject the stale memory with a `[STALE]` prefix in the context. |
+| Sibling is on a different branch than expected | No special handling — `df-workspace read` always reads the **active** branch's memory (via the `active` symlink). The developer is responsible for ensuring siblings are on the correct branch. No warning is printed because branch divergence is a normal workflow state. |
+| `df-workspace read` returns empty or malformed content | Print `[DevFlow] ⚠ Sibling "<service>" memory.md is empty or unreadable. Skipping.` Continue with remaining siblings. |
+
+All failures are **non-blocking** — cross-workspace context is best-effort. The feature skill never aborts because a sibling is unavailable. Each warning is printed once and not repeated on subsequent phases within the same feature flow.
+
 ---
 
 ## 8. Feature Execution Flow
@@ -328,7 +342,20 @@ Always the first phase. The feature skill interrogates the developer with critic
 | Out of scope | "Should comment editing be in scope? [A] No — read-only after submit. [B] Yes, within 5 minutes. [C] Out of scope for now, separate feature." |
 | Constraints | "Any systems this must integrate with that aren't in memory? [A] No. [B] Yes — specify." |
 
-The AI stops asking when all six areas have specific, unambiguous answers — typically 5–9 questions total.
+**Stopping gate.** The AI maintains a 6-item checklist (one per area above). An area is "answered" when the response contains a **testable acceptance criterion** — a statement that can be verified by a human or an automated test without further interpretation. Examples of testable: "API returns 422 with a `field` error key." Examples of non-testable: "handles errors gracefully," "works correctly." The AI stops asking when all six areas have at least one testable acceptance criterion each. Typical total: 5–9 questions.
+
+If the developer responds with a non-testable answer (e.g. "it should just work"), the AI rephrases once: "Can you describe what 'just work' looks like — what does the user see, or what does the API return?" If the second answer is still non-testable, the AI accepts it with a warning: `[DevFlow] ⚠ Area "<area>" accepted without testable criterion. This may cause ambiguity during review.`
+
+**Quick mode.** For small, well-understood tasks, the developer can invoke `/feature --quick "<one-line description>"`. Quick mode:
+
+1. **Skips Phase 0 entirely** — no PRD interrogation. The one-line description becomes the PRD.
+2. **Creates a single slice** — no slice decomposition.
+3. **Runs an abbreviated Phase 1** — the AI asks at most 2 domain questions, then proceeds.
+4. The `prd.md` file is still created (containing only the one-line description) so that `prd-archive/` and memory references remain consistent.
+
+Quick mode is a first-class path, not an escape hatch. It is appropriate when the developer can state the entire feature in one sentence with no ambiguity. If the AI detects that the one-liner is ambiguous (references unknown entities, unclear scope), it prints `[DevFlow] This looks too complex for --quick. Switching to full PRD flow.` and falls back to standard Phase 0.
+
+**Skip escape hatch.** `/skip-prd` bypasses Phase 0 without quick mode — the developer writes `prd.md` manually and the flow resumes at Phase 1. The AI validates that the manual PRD contains at least one testable criterion per area; if any area is missing, it warns but does not block.
 
 **PRD structure written to `.devflow/active/prd.md` on approval:**
 
@@ -555,7 +582,7 @@ After all slices pass, integration tests pass, and no blocking review findings r
 
 > **Superseded by graph model.** The full interface is defined in the graph memory design spec. Summary:
 
-1. Resolve input to a node in `nodes.json` — by node name (exact/fuzzy) or `file` field
+1. Resolve input to a node in `nodes.json` — by node name (exact → case-insensitive → substring; see graph memory spec §8) or `file` field
 2. BFS outbound edges (what this node depends on) and inbound edges (what depends on it) up to depth N (default: 1)
 3. Flag any stale nodes in the result
 4. Output a structured report showing the node, its relationships, and impact radius
@@ -575,33 +602,73 @@ Dumps current `memory.json` as a CLAUDE.md-compatible markdown block to stdout o
 
 ## 13. Installation
 
+### Prerequisites
+
+- macOS or Linux (Windows via WSL)
+- `git` ≥ 2.20
+- `jq` ≥ 1.6
+- `flock` (Linux) or built-in `flock` alternative (macOS — DevFlow falls back to PID-based `.lock` files if `flock` is unavailable)
+- Claude Code CLI installed and authenticated
+
+### Setup
+
 ```bash
-# Clone skill library
+# 1. Clone skill library
 git clone https://github.com/<you>/devflow ~/.devflow
 
-# Add scripts to PATH
+# 2. Add scripts to PATH
 echo 'export PATH="$HOME/.devflow/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 
-# Install skills into Claude Code (via CLAUDE.md or plugin directory)
-# Add to your global ~/.claude/CLAUDE.md:
-# Skills: ~/.devflow/skills/
+# 3. Register skills with Claude Code
+#    Add the following block to your global ~/.claude/CLAUDE.md:
 
-# Initialize a repo (run inside the repo)
-/init
+cat >> ~/.claude/CLAUDE.md << 'SKILLS'
+
+## DevFlow Skills
+
+The following skills are available from ~/.devflow/skills/:
+
+- **init** (`~/.devflow/skills/init/SKILL.md`): Initialize a repo with DevFlow memory
+- **feature** (`~/.devflow/skills/feature/SKILL.md`): PRD → domain → slice → implement → review
+- **mem-sync** (`~/.devflow/skills/mem-sync/SKILL.md`): Keep memory in sync with code changes
+- **fix** (`~/.devflow/skills/fix/SKILL.md`): Fix a bug using memory-aware context
+- **review** (`~/.devflow/skills/review/SKILL.md`): Review code against PRD and memory
+
+SKILLS
 ```
 
-`df-init` during `/init`:
-1. Detects stack from project files
-2. Scans architecture patterns
-3. Generates `memory.json` with real content (not templates) using AI
-4. Scans classifiers, builds initial `nodes.json` and `edges.json` using static analysis for structure + AI (batched) for intent
-5. Generates `memory.md` from `memory.json` + `nodes.json` + `edges.json`
-6. Creates `config.json` with current HEAD SHA, `schema_version: 1`, and inferred classifiers
-7. Installs `post-checkout` hook — swaps `active` symlink on branch switch and triggers `df-sync --branch-switch`
-8. Installs `post-commit` hook — invokes `mem-sync` after every commit to keep memory current with HEAD
-9. Prompts for workspace name and registers the repo
-10. Creates `.gitignore` entry for `.devflow/`
+Claude Code discovers skills listed in `CLAUDE.md` by reading the file at session start. Each entry must include the full path to the skill's `SKILL.md` file. Skills are invoked by their name (e.g. `/init`, `/feature`). No additional plugin registration or restart is required — Claude Code picks up changes to `CLAUDE.md` on the next session.
+
+### Verification
+
+After installation, run this checklist:
+
+```bash
+# All 7 scripts are on PATH
+which df-init df-sync df-test df-workspace df-explain df-export df-resolve
+# Expected: 7 paths printed, no "not found" errors
+
+# Scripts are executable
+ls -la ~/.devflow/bin/df-*
+# Expected: all files show -rwxr-xr-x permissions
+
+# Version check
+df-init --version
+# Expected: prints DevFlow version string
+
+# Claude Code sees the skills (verify in a Claude Code session)
+# Open Claude Code in any directory and type: /init
+# Expected: DevFlow init skill activates (asks about the repo)
+```
+
+### Per-repo initialization
+
+Run inside any git repo:
+
+```bash
+/init
+```
 
 ### Re-initialization
 
@@ -622,6 +689,231 @@ If `.devflow/` already exists when `/init` is invoked, `df-init` runs in **updat
 **What it never does in update mode:** wipe existing `intent` strings or reset `nodes.json`/`edges.json` content. Re-init patches forward — it does not rebuild from scratch unless `--reset` is passed explicitly.
 
 `df-init --reset` wipes `.devflow/branches/<current-branch>/` and rebuilds from scratch. It does not touch `prd-archive/` or other branch directories.
+
+---
+
+## 11a. Testing DevFlow Itself
+
+DevFlow's own scripts and skills are tested using [bats-core](https://github.com/bats-core/bats-core) (Bash Automated Testing System) for shell scripts and structured scenario files for skill behavior.
+
+### Shell script tests
+
+Each of the 7 shell scripts (`df-init`, `df-sync`, `df-test`, `df-workspace`, `df-explain`, `df-export`, `df-resolve`) has a corresponding test file in `tests/`:
+
+```
+tests/
+  df-init.bats
+  df-sync.bats
+  df-test.bats
+  df-workspace.bats
+  df-explain.bats
+  df-export.bats
+  df-resolve.bats
+  fixtures/
+    sample-repo/          # minimal git repo with known structure
+    sample-memory.json    # known memory state
+    sample-nodes.json     # known graph state
+    sample-edges.json
+    sample-config.json
+    ai-responses/         # canned AI responses for DEVFLOW_AI_MOCK=1
+```
+
+**Test categories per script:**
+
+| Script | Test categories |
+|---|---|
+| `df-init` | Fresh init creates all files; re-init patches without wiping; `--reset` wipes and rebuilds; hook installation is idempotent; workspace prompt works |
+| `df-sync` | Clean diff updates memory; dirty flag triggers re-sync; classifier glob failure skips file; concurrent sync blocked by flock; pattern learning appends to config.json |
+| `df-test` | Reads `DEVFLOW_TEST_CMD`; exits 1 on missing env var; passes through exit code from test command |
+| `df-workspace` | Read returns sibling memory.md; missing registry prints error; missing sibling path prints warning; write-outside-repo blocked |
+| `df-explain` | Exact match resolves; case-insensitive resolves; substring with single match resolves; substring with multiple matches lists all; no match prints help message; `--depth` flag works; stale node flagged |
+| `df-export` | Exports memory.md to stdout; `--format json` exports raw JSON; missing memory prints error |
+| `df-resolve` | Resolves A/B/W choices; removes conflict file after all resolved; triggers df-sync after resolution; unresolved conflicts block skills |
+
+**Running tests:**
+
+```bash
+bats tests/              # run all
+bats tests/df-sync.bats  # run one script's tests
+```
+
+Tests use fixture repos (not real repos) and mock AI calls by setting `DEVFLOW_AI_MOCK=1`, which makes scripts read canned responses from `tests/fixtures/ai-responses/` instead of calling Claude.
+
+### Skill behavior tests
+
+Skills are tested via **scenario files** — markdown documents that describe an input state, a user action, and expected AI behavior:
+
+```
+tests/scenarios/
+  feature-happy-path.md
+  feature-quick-mode.md
+  feature-skip-prd.md
+  fix-with-stale-memory.md
+  review-with-conflicts.md
+```
+
+Each scenario file follows this structure:
+
+```markdown
+# Scenario: Feature Happy Path
+
+## Setup
+- Repo with `.devflow/` initialized
+- `memory.md` contains entity:Comment, service:CommentService
+- No pending conflicts
+
+## Action
+Developer invokes `/feature "Add comment reactions"`
+
+## Expected
+1. Phase 0 asks questions covering all 6 PRD areas
+2. Stopping gate: each area gets a testable criterion before proceeding
+3. Phase 1 loads local memory.md
+4. Slices are created in `.devflow/branches/<branch>/slices/`
+```
+
+Scenario tests are **not automated** — they are reference documents for manual QA and for AI agents executing the `review` skill. The `review` skill checks the current feature flow against matching scenarios to verify behavioral correctness.
+
+### CI integration
+
+DevFlow's own CI runs:
+```bash
+bats tests/           # shell script tests
+shellcheck bin/df-*   # lint all scripts
+```
+
+No AI calls in CI — all AI interactions are mocked via `DEVFLOW_AI_MOCK=1`.
+
+---
+
+## 11b. Performance & Scale Budget
+
+DevFlow must remain fast enough that developers never wait for it. These are the performance constraints.
+
+### Sync cost (`df-sync`)
+
+| Metric | Budget | Rationale |
+|---|---|---|
+| Heuristic classification (glob match) | < 50ms for 100 changed files | Glob matching is O(patterns × files); both are small. |
+| AI batch call (unclassified files) | < 10s wall-clock | Single batched call. If >30 unclassified files, split into batches of 30 and run sequentially. |
+| Full sync (heuristic + AI + write) | < 15s for a typical commit (1–20 files) | Developer should not notice sync in post-commit hook. |
+| Graph write (`nodes.json` + `edges.json`) | < 200ms for 500 nodes | JSON serialization of in-memory objects. |
+
+**Large repo safeguard:** If a single commit touches >100 files (e.g. a large refactor or dependency update), `df-sync` prints `[DevFlow] Large diff detected (<N> files). Sync may take longer than usual.` and proceeds normally. No special batching — the AI batch call handles up to 30 files per call, so a 200-file commit results in ~7 sequential AI calls (~70s). This is acceptable for rare large commits.
+
+### Memory size growth
+
+| File | Expected size at 500 nodes | Max recommended |
+|---|---|---|
+| `nodes.json` | ~150 KB (300 bytes/node avg) | 1 MB |
+| `edges.json` | ~100 KB (200 bytes/edge avg, ~2 edges/node) | 500 KB |
+| `memory.md` | ~50 KB (100 bytes/node summary) | 200 KB |
+| `memory.json` | ~80 KB (sections with metadata) | 500 KB |
+
+**If files exceed max recommended size:** `df-sync` prints `[DevFlow] ⚠ nodes.json exceeds 1 MB (<actual> KB). Consider archiving old nodes with df-export --archive.` No automatic action — the developer decides whether to prune.
+
+### AI call frequency
+
+| Operation | AI calls | When |
+|---|---|---|
+| `df-sync` (post-commit) | 0–1 | Only if unclassified files exist. Most commits: 0 calls (heuristics handle it). |
+| `df-sync` (post-checkout / branch switch) | 0–1 | Only if branch memory is stale vs HEAD. |
+| `/init` (first time) | 1–3 | Initial classification + intent inference. Batched. |
+| `/feature` Phase 0 (PRD) | 5–9 | Interactive questions — not batched, one per turn. |
+| `/feature` Phase 1 (Domain) | 2–5 | Interactive questions. |
+| `/feature` slicing + implementation | Varies | Per-slice agent calls. See parallel execution spec §7–§11 for token budgets. |
+
+**Cost estimate:** A typical feature flow (PRD + domain + 3 slices) costs ~$0.50–$2.00 in Claude API calls at current Sonnet pricing. DevFlow does not track or enforce cost limits — this is informational.
+
+### Graph traversal (`df-explain`)
+
+BFS traversal of `nodes.json` + `edges.json` is O(V + E) where V = nodes visited and E = edges traversed. At depth 1 (default), this is O(degree of the node) — typically <10 edges. At depth 3, worst case on a 500-node graph is ~500 nodes visited, which completes in <100ms. No optimization needed below 5,000 nodes.
+
+---
+
+## 11c. Rollback & Undo
+
+DevFlow operations that modify memory are reversible. This section defines the undo mechanisms.
+
+### Classifier rollback
+
+When `df-sync` appends a learned pattern to `config.json` classifiers (step 4 of the classification pipeline), it also writes a `classifier_log` entry:
+
+```json
+// config.json — classifier_log (append-only)
+{
+  "classifier_log": [
+    {
+      "added": "2026-04-29T14:30:00Z",
+      "pattern": "*.reaction.ts",
+      "section": "services",
+      "source": "ai-inferred",
+      "commit": "abc1234"
+    }
+  ]
+}
+```
+
+To undo a bad classifier:
+
+```bash
+df-sync --undo-classifier "*.reaction.ts"
+```
+
+This removes the pattern from `config.json` classifiers and appends a `removed` entry to `classifier_log`. On the next `df-sync`, files matching the removed pattern will be re-classified by AI (which may re-learn the same pattern — the developer should manually add the correct pattern if the AI's inference was wrong).
+
+### Intent revert
+
+If an AI-inferred `intent` string on a node is wrong, the developer can correct it:
+
+```bash
+df-explain Comment              # see current intent
+df-resolve --rewrite-intent entity:Comment "Soft-deletable — hide, never purge"
+```
+
+`df-resolve --rewrite-intent <node-id> "<new-intent>"` overwrites the `intent` field on the specified node in `nodes.json` and sets `confidence: "manual"`. Manual intents are never overwritten by AI — `df-sync` skips intent inference for nodes with `confidence: "manual"`.
+
+To revert a manual intent back to AI-managed:
+
+```bash
+df-resolve --rewrite-intent entity:Comment --auto
+```
+
+This clears the `intent` field and sets `confidence: "ai"`. The next `df-sync` will re-infer the intent.
+
+### Memory snapshot & restore
+
+Before destructive operations (`df-init --reset`, large merges), DevFlow automatically snapshots the current memory state. The developer can also snapshot manually at any time:
+
+```bash
+df-export --snapshot
+```
+
+Snapshots are stored in `.devflow/snapshots/`:
+
+```
+.devflow/snapshots/
+  2026-04-29T14-30-00Z/
+    nodes.json
+    edges.json
+    memory.json
+    config.json
+    memory.md
+```
+
+To restore a snapshot:
+
+```bash
+df-export --restore 2026-04-29T14-30-00Z
+```
+
+This overwrites the current branch's memory files with the snapshot contents and runs `df-sync` to reconcile with the current HEAD. Snapshots older than 30 days are not automatically deleted — the developer manages cleanup manually.
+
+### What is NOT undoable
+
+- **PRD answers** — once Phase 0 is approved, the PRD is archived. To change it, start a new feature flow.
+- **Slice implementation** — code changes are managed by git, not DevFlow. Use `git revert` or `git reset`.
+- **Conflict resolutions** — once `df-resolve` writes a resolution, it is final. The developer can use `df-resolve --rewrite-intent` to change the value later, but the original conflict is not re-created.
 
 ---
 

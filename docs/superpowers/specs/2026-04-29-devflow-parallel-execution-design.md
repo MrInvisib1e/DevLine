@@ -1,6 +1,7 @@
 # DevFlow — Parallel Execution Design
-**Date:** 2026-04-29
-**Status:** Approved
+**Version:** 2.0  
+**Date:** 2026-04-29  
+**Status:** Approved  
 **Scope:** Slice dependency graph, parallel agent dispatch via git worktrees, per-slice agent pipeline (implementation → test → review), and final integration test and review agents — all as extensions to the feature skill flow defined in `InitialSpec.md`.
 
 ---

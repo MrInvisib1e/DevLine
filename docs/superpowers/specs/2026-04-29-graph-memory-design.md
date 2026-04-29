@@ -1,6 +1,7 @@
 # Graph Memory Design
-**Date:** 2026-04-29
-**Status:** Approved
+**Version:** 2.0  
+**Date:** 2026-04-29  
+**Status:** Approved  
 **Scope:** Replaces flat `memory.json` sections with a typed graph — `nodes.json` + `edges.json`
 
 ---
@@ -284,9 +285,25 @@ No silent merge. If `graph_conflicts.json` exists, skills block reasoning on aff
 
 | Form | Example | Behavior |
 |---|---|---|
-| Node name | `df-explain Comment` | Exact or fuzzy match against `nodes.json` |
+| Node name | `df-explain Comment` | Exact → case-insensitive → substring match against `nodes.json` (see §8 Name resolution algorithm) |
 | File path | `df-explain Entities/Comment.cs` | Match by `file` field |
 | Depth flag | `df-explain --depth 2 Comment` | BFS depth (default: 1, direct neighbours only) |
+
+### Name resolution algorithm
+
+1. **Exact match:** Compare input against all node names in `nodes.json`. Case-sensitive. If exactly one match → use it.
+2. **Case-insensitive exact match:** If no exact match, compare case-insensitively. If exactly one match → use it.
+3. **Substring match:** If no case-insensitive exact match, check if the input is a case-insensitive substring of any node name. If exactly one match → use it. If multiple matches → print all matches and ask the developer to be more specific:
+   ```
+   [DevFlow] Multiple matches for "comment":
+     1. entity:Comment
+     2. service:CommentService
+     3. endpoint:CommentController
+   Specify a full node name or use df-explain --node <exact-name>.
+   ```
+4. **No match:** Print `[DevFlow] No memory found for "<input>". It may need a df-sync or a classifier entry.`
+
+The `--node` flag bypasses resolution and requires an exact node name (case-sensitive). This is useful in scripts or when the developer knows the exact node ID.
 
 ### Traversal algorithm
 
