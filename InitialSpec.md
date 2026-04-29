@@ -573,6 +573,26 @@ source ~/.zshrc
 9. Prompts for workspace name and registers the repo
 10. Creates `.gitignore` entry for `.devflow/`
 
+### Re-initialization
+
+If `.devflow/` already exists when `/init` is invoked, `df-init` runs in **update mode**:
+
+1. Reads `config.json` to confirm the repo and schema version.
+2. If `schema_version` in `config.json` is lower than the current binary's schema version: runs the migration path before proceeding (see graph memory design spec §11).
+3. Re-runs steps 1–6 of the init flow above, patching `config.json`, `memory.json`, `nodes.json`, and `edges.json` incrementally — it does **not** reset them to empty.
+4. Re-installs both hooks (idempotent — safe to run if hooks were removed or corrupted).
+5. Does **not** prompt for workspace name again — the existing workspace registration is preserved.
+6. Prints `[DevFlow] Re-initialized. Memory patched from <old-sha> to <HEAD-sha>.`
+
+**When to re-init:**
+- After a major stack change (new framework added, language version bumped)
+- After cloning a repo where `.devflow/` was deleted (e.g. by `git clean -fdx`)
+- After a schema version upgrade
+
+**What it never does in update mode:** wipe existing `intent` strings or reset `nodes.json`/`edges.json` content. Re-init patches forward — it does not rebuild from scratch unless `--reset` is passed explicitly.
+
+`df-init --reset` wipes `.devflow/branches/<current-branch>/` and rebuilds from scratch. It does not touch `prd-archive/` or other branch directories.
+
 ---
 
 ## 14. What DevFlow Is Not
