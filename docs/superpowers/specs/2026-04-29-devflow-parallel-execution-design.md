@@ -181,6 +181,48 @@ fi
 
 The hook exits with code 1 to abort the checkout. `.devflow/batch.lock` is deleted by the main session after all worktrees are merged and removed (or on any batch abort).
 
+### batch.lock stale recovery
+
+If the main session is killed (SIGKILL, power loss, OOM) while a batch is active, `batch.lock` is never deleted. On the next branch switch, the `post-checkout` hook detects `batch.lock` and runs stale recovery before blocking:
+
+```bash
+if [ -f .devflow/batch.lock ]; then
+  AGENT_PIDS=$(jq -r '.agent_pids // [] | .[]' .devflow/batch.lock 2>/dev/null)
+  ALL_DEAD=true
+  for PID in $AGENT_PIDS; do
+    if kill -0 "$PID" 2>/dev/null; then
+      ALL_DEAD=false
+      break
+    fi
+  done
+
+  if [ "$ALL_DEAD" = true ]; then
+    echo "[DevFlow] Stale batch.lock detected (all agent PIDs dead). Cleaning up worktrees."
+    for WORKTREE in .devflow/worktrees/slice-*/; do
+      git worktree remove --force "$WORKTREE" 2>/dev/null || true
+    done
+    rm -f .devflow/batch.lock
+    # Fall through to normal branch-switch logic
+  else
+    echo "[DevFlow] Branch switch blocked: parallel batch in progress (slices $(jq -r '.batch_slices | join(", ")' .devflow/batch.lock))."
+    echo "[DevFlow] Cancel the active feature session or wait for the batch to complete before switching branches."
+    exit 1
+  fi
+fi
+```
+
+`batch.lock` must include an `agent_pids` array written at batch start:
+
+```json
+{
+  "active_batch": true,
+  "batch_slices": [1, 3],
+  "agent_pids": [48291, 48305]
+}
+```
+
+If `agent_pids` is absent or empty (legacy lock file), the hook treats all agents as dead and cleans up. This is the safe failure direction — a false positive cleanup is recoverable via `/feature resume`; a permanently blocked branch switch is not.
+
 ---
 
 ## 5. Memory Consistency During Parallel Execution
