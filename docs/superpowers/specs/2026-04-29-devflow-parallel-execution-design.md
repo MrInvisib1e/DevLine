@@ -66,6 +66,21 @@ Each slice in `slices.json` carries a `depends_on` field: a list of slice IDs th
 
 In this example slices 1 and 3 form the first batch (no dependencies). Slice 2 forms the second batch (depends on slice 1).
 
+### Slice status state machine
+
+Valid values for the `status` field in `slices.json`:
+
+| Status | Set by | Meaning |
+|---|---|---|
+| `pending` | Slice planning (initial) | Not yet started |
+| `in-progress` | Executor, on dispatch | Implementation agent has been dispatched |
+| `reviewing` | Executor, after test agent passes | Slice review agent is running |
+| `done` | Executor, after review agent passes with no blocking findings | All three agents completed successfully |
+| `failed` | Test agent or implementation agent, after max fix cycles | Could not reach a passing state — escalated to developer |
+| `blocked` | Slice review agent, on `blocking` finding | Review found a blocker; awaiting fix |
+
+Transitions: `pending → in-progress → reviewing → done | blocked`. From `blocked`: re-engage implementation agent → back to `in-progress`. From `in-progress`/`reviewing`: on unrecoverable failure → `failed`. No other transitions are valid.
+
 ### Rules enforced at planning time
 
 - **No circular dependencies** — the skill rejects cycles with an explanation and replans.
@@ -123,7 +138,7 @@ On any agent failure: remaining in-flight agents for this slice are cancelled. F
 
 **Commit (after all three agents pass):**
 
-Commits with message `feat(<feature>): slice <id> — <name>` and signals completion to main session.
+The batch's commits follow the tagging convention defined by each agent: `[impl]` (implementation agent), `[tests]` (test agent). The main session cherry-picks all tagged commits in slice-id order and signals batch completion.
 
 **Merge and cleanup (main session):**
 
@@ -138,11 +153,33 @@ git worktree remove .devflow/worktrees/slice-<id>
 df-sync
 ```
 
-Cherry-picks are applied in slice-id order regardless of which subagent finished first. If any cherry-pick conflicts, the main session surfaces it and halts — the developer resolves manually.
+Cherry-picks are applied in slice-id order regardless of which subagent finished first. If any cherry-pick conflicts, the main session:
+
+1. Sets the conflicting slice's `status` to `"blocked"` in `slices.json`
+2. **Keeps all worktrees alive** for the affected batch — they are not removed until the conflict is resolved
+3. Surfaces the conflict with the conflicting file and both SHAs
+4. Halts — the developer resolves the conflict in the main worktree, commits the resolution, then re-runs `/feature resume`
+5. On resume: the main session retries the cherry-pick from the resolved state; worktrees are removed once all cherry-picks succeed
+
+No partial batch is ever merged — the main branch stays clean until all cherry-picks in the batch succeed.
 
 **On any subagent failure:**
 
 All remaining in-flight subagents are cancelled. Their worktrees are removed without merging. The main session surfaces the failing slice's findings and stops. No partial batch is ever merged.
+
+**Branch switch during an active parallel batch:**
+
+The `post-checkout` hook must detect an active batch before swapping the `active` symlink. At batch start, the executor writes `{"active_batch": true, "batch_slices": [1, 3]}` to `.devflow/batch.lock`. The `post-checkout` hook checks for this file before any branch-switch logic:
+
+```bash
+if [ -f .devflow/batch.lock ]; then
+  echo "[DevFlow] Branch switch blocked: parallel batch in progress (slices $(jq -r '.batch_slices | join(", ")' .devflow/batch.lock))."
+  echo "[DevFlow] Cancel the active feature session or wait for the batch to complete before switching branches."
+  exit 1
+fi
+```
+
+The hook exits with code 1 to abort the checkout. `.devflow/batch.lock` is deleted by the main session after all worktrees are merged and removed (or on any batch abort).
 
 ---
 
@@ -207,15 +244,15 @@ One per slice. Fires immediately after the implementation agent commits. Clean c
 ### Contract
 
 ```
+write tests covering the slice's declared result and PRD edge cases
 run df-test <slice-id>
 if PASS:
-  write tests that cover the slice's declared result and PRD edge cases
   commit: feat(<feature>): slice <id> — <name> [tests]
   signal PASS to main session
 
 if FAIL:
   diagnose from diff + test output
-  write fix + tests
+  fix tests (and implementation if the diff is the root cause)
   run df-test <slice-id> again
   if PASS: commit fix + tests, signal PASS
   if FAIL again: signal FAIL with findings — do not attempt third fix
@@ -290,6 +327,11 @@ Fires after all slices reach `"done"`. One agent, clean context, main worktree (
 | `memory.md` — full | 5–20k |
 
 **Total target: under 60k tokens.**
+
+If the actual token count exceeds 60k, the agent applies this reduction strategy in order until it fits:
+1. Trim `memory.md` to the graph section only (drop stack/architecture/conventions prose)
+2. Truncate the feature branch diff to the most recent 500 lines per changed file (keep file headers)
+3. If still over: surface a warning to the developer and proceed with the truncated context — do not abort
 
 ### Contract
 
@@ -390,3 +432,55 @@ Phase 6 — Memory Sync           df-sync final pass, delete slices.json, keep p
 ```
 
 `worktrees/` is gitignored. It is always empty outside of an active parallel batch. The symlink in each worktree uses an absolute path (via `realpath`) to avoid relative path ambiguity across nested directories.
+
+---
+
+## 14. Feature Resume
+
+`/feature resume` is the re-entry point after any developer-resolved interruption during Phase 3 (cherry-pick conflict, blocked slice, integration test failure). It never restarts the full feature — it resumes from the last stable state recorded in `slices.json`.
+
+### Resume algorithm
+
+```
+1. Read slices.json from .devflow/active/
+2. If slices.json is missing: print "[DevFlow] No active feature found. Start a new feature with /feature." and exit.
+3. Identify the earliest slice whose status is not "done":
+   - "blocked"     → the cherry-pick conflict was the issue; retry cherry-pick from current HEAD
+   - "failed"      → the developer must explicitly set the slice status back to "pending" in slices.json
+                     before resuming; /feature resume will not auto-retry a "failed" slice
+   - "in-progress" or "reviewing" → a prior session was killed mid-agent; re-dispatch the agent pipeline
+                                     from the beginning of that slice (implementation → test → review)
+4. Run the pre-dispatch file overlap check (§4) against the current nodes.json — dependencies may
+   have shifted since the original plan.
+5. Continue execution from the identified slice forward, respecting the original depends_on DAG.
+   Slices already at "done" are skipped — they are never re-executed.
+6. If batch.lock exists from a prior crash, verify PIDs (see §4 batch.lock stale recovery) before
+   resuming — a live batch must complete or be aborted before resume can proceed.
+```
+
+### What resume does NOT do
+
+- Does not re-run Phase 0 (PRD), Phase 1 (domain), or Phase 2 (slice planning) — those are locked in `prd.md` and `slices.json`.
+- Does not re-run completed slices (status `"done"`).
+- Does not auto-fix a `"failed"` slice — the developer must intervene, fix the issue, and reset the slice status to `"pending"` in `slices.json` before running `/feature resume`.
+
+### Developer path for a "failed" slice
+
+```
+1. Developer inspects the failure findings surfaced by the test or implementation agent.
+2. Developer makes a manual fix in the main worktree.
+3. Developer opens .devflow/active/slices.json and sets the slice status from "failed" to "pending".
+4. Developer runs /feature resume — the executor re-dispatches the agent pipeline for that slice.
+```
+
+### Integration test failure resume
+
+After fixing a cross-slice interaction that caused the integration test to fail:
+
+```
+1. Developer commits the fix to the main branch.
+2. Developer runs /feature resume.
+3. Resume detects all slices are "done" and integration_status is "failed" in slices.json.
+4. Re-dispatches the Integration Test Agent (Phase 4) only — does not re-run slice agents.
+5. If integration test passes: proceeds to Phase 5 (Final Review Agent).
+```
