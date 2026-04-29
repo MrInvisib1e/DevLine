@@ -274,6 +274,17 @@ No silent degradation.
 
 Every skill invocation checks `last_synced` SHA against current HEAD. If they diverge (hook missed, manual copy, CI), the skill runs `df-sync` automatically before proceeding.
 
+### CI/CD environments
+
+CI environments have no `.devflow/` directory and never run `df-init`. Skills and scripts handle this gracefully rather than failing:
+
+- All `df-*` scripts check for the existence of `.devflow/` at startup. If absent, they print `[DevFlow] No .devflow/ directory found — running in CI mode. Exiting 0.` and exit with code 0. They never fail a CI build due to missing memory.
+- `df-test` is the one exception: it checks for `DEVFLOW_TEST_CMD` environment variable first. If set, it runs that command instead of reading `slices.json`. If neither `DEVFLOW_TEST_CMD` nor `.devflow/` is present, it prints `[DevFlow] No test command found. Set DEVFLOW_TEST_CMD or run df-init.` and exits 1.
+- `df-sync`, `df-explain`, and `df-export` exit 0 silently in CI (no `.devflow/`). They are developer-workstation tools.
+- The `review` skill in CI receives no `memory.md` — it performs a generic diff review with a warning: `[DevFlow] No memory found — review is not architecture-aware.`
+
+DevFlow is a developer-workstation tool. CI is a supported runtime only for `df-test`. All other scripts and skills degrade to silent no-ops in CI rather than blocking the build.
+
 ---
 
 ## 7. Workspace Registry
