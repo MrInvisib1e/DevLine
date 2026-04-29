@@ -1,0 +1,18 @@
+{
+  "generated_at": "2026-01-01T00:00:00Z",
+  "nodes": [
+    {
+      "id": "entity:Entities.Comment",
+      "conflict": "intent",
+      "branch_a": "Soft-deletable content unit",
+      "branch_b": "Append-only comment log"
+    },
+    {
+      "id": "service:Services.CommentService",
+      "conflict": "intent",
+      "branch_a": "Owns all comment mutations",
+      "branch_b": "Read-only comment query service"
+    }
+  ],
+  "edges": []
+}

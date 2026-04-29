@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+# dl-explain — Query the codebase knowledge graph via codebase-memory-mcp
+# Usage:
+#   dl-explain <query>              — search for a symbol/concept
+#   dl-explain --rank [--budget N]  — top N nodes by degree
+#   dl-explain --diff HEAD~5 HEAD   — what changed between commits
+#   dl-explain --node <file>        — node for a file + 1 level edges
+#   dl-explain --impact             — detect_changes blast radius
+#   dl-explain --dead-code          — find zero-caller functions
+#   dl-explain --clones             — find near-clone pairs
+# Options:
+#   --project <name>                — scope to a specific project (orchestrator mode)
+#   --headless                      — non-interactive mode
+
+set -euo pipefail
+
+DEVLINE_VERSION="4.0.0"
+
+if [[ "${1:-}" == "--version" || "${1:-}" == "-v" ]]; then
+  echo "Devline dl-explain $DEVLINE_VERSION"
+  exit 0
+fi
+
+PROJECT=""
+BUDGET=512
+HEADLESS=false
+ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --project) PROJECT="$2"; shift 2 ;;
+    --budget) BUDGET="$2"; shift 2 ;;
+    --headless) HEADLESS=true; shift ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
+
+# --- Git root and .devline/ detection ---
+GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "Not a git repo" >&2; exit 1
+}
+
+DEVLINE_DIR="$GIT_ROOT/.devline"
+
+# If .devline/ doesn't exist and we're not in mock mode, exit silently (CI mode)
+if [ ! -d "$DEVLINE_DIR" ] && [ "${DEVLINE_MCP_MOCK:-}" != "1" ]; then
+  exit 0
+fi
+
+PROJECT_ARG=""
+if [ -n "$PROJECT" ]; then
+  PROJECT_ARG="\"project\":\"$PROJECT\","
+fi
+
+check_mcp() {
+  # DEVLINE_MCP_MOCK=1 skips real MCP calls (for tests)
+  if [ "${DEVLINE_MCP_MOCK:-}" = "1" ]; then return 0; fi
+  command -v codebase-memory-mcp &>/dev/null || {
+    echo "Error: codebase-memory-mcp not found. Install with: dl-install --mcp" >&2
+    exit 1
+  }
+}
+
+# Mock MCP responder for tests
+mock_mcp() {
+  # Returns minimal valid responses for each query type
+  case "${1:-}" in
+    search_graph) echo "[]" ;;
+    trace_call_path) echo "{\"paths\":[]}" ;;
+    detect_changes) echo "{\"affected_symbols\":[]}" ;;
+    query_graph) echo "{\"rows\":[]}" ;;
+    get_architecture) echo "{}" ;;
+    *) echo "{}" ;;
+  esac
+}
+
+mcp_call() {
+  local tool="$1"; shift
+  if [ "${DEVLINE_MCP_MOCK:-}" = "1" ]; then
+    mock_mcp "$tool"
+  else
+    codebase-memory-mcp cli "$tool" "$@"
+  fi
+}
+
+MODE="${ARGS[0]:-search}"
+
+case "$MODE" in
+  --rank)
+    check_mcp
+    mcp_call search_graph \
+      "{${PROJECT_ARG}\"limit\":$BUDGET,\"min_degree\":1}" \
+      | python3 -c "
+import json,sys
+nodes=json.load(sys.stdin)
+for n in nodes:
+  print(f\"{n.get('name','?')} [{n.get('label','?')}] — {n.get('file','')} (degree: {n.get('degree',0)})\")
+"
+    ;;
+
+  --diff)
+    check_mcp
+    FROM="${ARGS[1]:-HEAD~1}"
+    TO="${ARGS[2]:-HEAD}"
+    mcp_call query_graph \
+      "{${PROJECT_ARG}\"query\":\"MATCH (n) WHERE n.file_changed_in >= '$FROM' RETURN n LIMIT 50\"}" \
+      2>/dev/null || echo "(diff query not supported in this version)"
+    ;;
+
+  --node)
+    check_mcp
+    FILE="${ARGS[1]}"
+    mcp_call search_graph \
+      "{${PROJECT_ARG}\"file_pattern\":\"$FILE\",\"limit\":20}" | python3 -c "
+import json,sys
+nodes=json.load(sys.stdin)
+for n in nodes:
+  print(f\"{n.get('name','?')} [{n.get('label','?')}] — {n.get('file','')}\")"
+    echo "--- Outbound ---"
+    BASENAME=$(basename "${ARGS[1]}" | sed 's/\.[^.]*$//')
+    mcp_call trace_call_path \
+      "{${PROJECT_ARG}\"function_name\":\"$BASENAME\",\"direction\":\"outbound\",\"depth\":1}" \
+      2>/dev/null || echo "(trace not available)"
+    echo "--- Inbound ---"
+    mcp_call trace_call_path \
+      "{${PROJECT_ARG}\"function_name\":\"$BASENAME\",\"direction\":\"inbound\",\"depth\":1}" \
+      2>/dev/null || echo "(trace not available)"
+    ;;
+
+  --impact)
+    check_mcp
+    mcp_call detect_changes "{${PROJECT_ARG:-}}" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+symbols=data.get('affected_symbols',[])
+print(f'Affected symbols: {len(symbols)}')
+for s in symbols:
+  risk=s.get('risk','unknown')
+  print(f'  [{risk.upper()}] {s.get(\"name\",\"?\")} — {s.get(\"file\",\"\")}')"
+    ;;
+
+  --dead-code)
+    check_mcp
+    mcp_call query_graph \
+      "{${PROJECT_ARG}\"query\":\"MATCH (f:Function) WHERE NOT ()-[:CALLS]->(f) AND NOT f.name STARTS WITH 'test' RETURN f.name, f.file LIMIT 50\"}" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+rows=data.get('rows',[])
+print(f'Dead code candidates: {len(rows)}')
+for r in rows:
+  print(f'  {r.get(\"f.name\",\"?\")} — {r.get(\"f.file\",\"\")}')"
+    ;;
+
+  --clones)
+    check_mcp
+    mcp_call query_graph \
+      "{${PROJECT_ARG}\"query\":\"MATCH (a)-[r:SIMILAR_TO]->(b) WHERE r.score > 0.8 RETURN a.name, b.name, r.score ORDER BY r.score DESC LIMIT 20\"}" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+rows=data.get('rows',[])
+print(f'Near-clone pairs (score > 0.8): {len(rows)}')
+for r in rows:
+  print(f'  {r.get(\"a.name\",\"?\")} ≈ {r.get(\"b.name\",\"?\")} (score: {r.get(\"r.score\",0):.2f})')"
+    ;;
+
+  --help|-h)
+    sed -n '2,12p' "$0"
+    ;;
+
+  *)
+    # Default: semantic + structural search for query term
+    check_mcp
+    QUERY="$MODE"
+    echo "=== Structural search: $QUERY ==="
+    mcp_call search_graph \
+      "{${PROJECT_ARG}\"name_pattern\":\"$QUERY\",\"limit\":20}" | python3 -c "
+import json,sys
+nodes=json.load(sys.stdin)
+for n in nodes:
+  print(f\"  {n.get('name','?')} [{n.get('label','?')}] — {n.get('file','')}\")"
+    echo ""
+    echo "=== Call paths: $QUERY ==="
+    mcp_call trace_call_path \
+      "{${PROJECT_ARG}\"function_name\":\"$QUERY\",\"direction\":\"both\",\"depth\":2}" \
+      2>/dev/null | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+paths=data.get('paths',[])
+for p in paths:
+  print(f\"  {' → '.join(str(n) for n in p)}\")
+" 2>/dev/null || echo "  (no call paths found)"
+    ;;
+esac

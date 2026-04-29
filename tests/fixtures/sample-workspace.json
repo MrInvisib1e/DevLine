@@ -1,0 +1,5 @@
+{
+  "core": "/tmp/devline-test-core",
+  "portal": "/tmp/devline-test-portal",
+  "jobs": "/tmp/devline-test-jobs"
+}

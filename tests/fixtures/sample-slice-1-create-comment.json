@@ -1,0 +1,27 @@
+{
+  "id": 1,
+  "name": "User can create a comment",
+  "instructions": "slice-1-create-comment.md",
+  "layers": ["db", "service", "api", "frontend"],
+  "result": "POST /api/comments returns 201, comment appears in UI",
+  "test_cmd": "echo PASS_SLICE_1",
+  "depends_on": [],
+  "status": "pending",
+  "cycle": 0,
+  "max_cycles": 3,
+  "steps": [
+    { "id": "s1", "action": "create", "file": "Entities/Comment.cs", "done": false }
+  ],
+  "test_steps": [
+    { "id": "t1", "file": "tests/comments.spec.ts", "done": false }
+  ],
+  "implementation_summary": null,
+  "files_changed": null,
+  "test_result": null,
+  "test_summary": null,
+  "test_agent_skipped": false,
+  "test_agent_skip_reason": null,
+  "review_findings": null,
+  "concerns": null,
+  "worktree_path": null
+}

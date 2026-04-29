@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Devline CLI entry point
+# Usage: devline <command> [args]
+case "${1:-help}" in
+  init)       shift; exec "$(dirname "$0")/dl-init" "$@" ;;
+  explain)    shift; exec "$(dirname "$0")/dl-explain" "$@" ;;
+  check)      shift; exec "$(dirname "$0")/dl-check" "$@" ;;
+  test)       shift; exec "$(dirname "$0")/dl-test" "$@" ;;
+  workspace)  shift; exec "$(dirname "$0")/dl-workspace" "$@" ;;
+  benchmark)  shift; exec "$(dirname "$0")/dl-benchmark" "$@" ;;
+  install)    shift; exec "$(dirname "$0")/dl-install" "$@" ;;
+  help|*)
+    echo "Devline v4"
+    echo "Usage: devline <command>"
+    echo "  init       — Initialize Devline memory for a repo"
+    echo "  explain    — Query the knowledge graph"
+    echo "  check      — Run quality hooks (lint/format/typecheck)"
+    echo "  test       — Run declared test for a named slice"
+    echo "  workspace  — Manage workspace registry"
+    echo "  benchmark  — A/B test skills with falsifiable assertions"
+    echo "  install    — One-command installer for all platforms"
+    echo ""
+    echo "Or use individual commands: dl-init, dl-explain, dl-check, etc."
+    echo "Memory sync is automatic via post-commit hook. Use /dl-sync skill manually if needed."
+    ;;
+esac

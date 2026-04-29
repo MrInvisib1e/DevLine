@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "edges": [
+    {
+      "from": "entity:Entities.Comment",
+      "to": "service:Services.CommentService",
+      "rel": "uses"
+    },
+    {
+      "from": "service:Services.CommentService",
+      "to": "contract:Contracts.CommentCreatedEvent",
+      "rel": "emits"
+    },
+    {
+      "from": "route:src.routes.+page",
+      "to": "service:Services.CommentService",
+      "rel": "uses"
+    },
+    {
+      "from": "service:Services.UserService",
+      "to": "entity:Entities.Comment",
+      "rel": "uses"
+    }
+  ]
+}

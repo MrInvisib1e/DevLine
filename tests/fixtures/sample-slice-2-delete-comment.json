@@ -1,0 +1,27 @@
+{
+  "id": 2,
+  "name": "User can delete a comment",
+  "instructions": "slice-2-delete-comment.md",
+  "layers": ["service", "api", "frontend"],
+  "result": "DELETE /api/comments/:id returns 204",
+  "test_cmd": "exit 1",
+  "depends_on": [1],
+  "status": "failed",
+  "cycle": 1,
+  "max_cycles": 3,
+  "steps": [
+    { "id": "s1", "action": "modify", "file": "Services/CommentService.cs", "done": true }
+  ],
+  "test_steps": [
+    { "id": "t1", "file": "tests/comments.spec.ts", "done": false }
+  ],
+  "implementation_summary": "Added delete method to CommentService",
+  "files_changed": ["Services/CommentService.cs"],
+  "test_result": "FAIL (0/1)",
+  "test_summary": null,
+  "test_agent_skipped": false,
+  "test_agent_skip_reason": null,
+  "review_findings": null,
+  "concerns": null,
+  "worktree_path": null
+}

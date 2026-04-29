@@ -1,0 +1,240 @@
+#!/usr/bin/env bash
+# dl-init — Initialize Devline for current project
+# Usage: dl-init [--scan] [--write-memory] [--reset] [--orchestrator] [--headless]
+# Requires: codebase-memory-mcp running as MCP server
+
+set -euo pipefail
+
+DEVLINE_VERSION="4.0.0"
+
+if [[ "${1:-}" == "--version" || "${1:-}" == "-v" ]]; then
+  echo "Devline dl-init $DEVLINE_VERSION"
+  exit 0
+fi
+
+MODE="init"
+HEADLESS=false
+
+for arg in "$@"; do
+  case "$arg" in
+    --scan) MODE="scan" ;;
+    --write-memory) MODE="write-memory" ;;
+    --reset) MODE="reset" ;;
+    --orchestrator) MODE="orchestrator" ;;
+    --headless) HEADLESS=true ;;
+  esac
+done
+
+# In headless mode: T3 gates auto-approve, T2 writes to log
+df_gate() {
+  local msg="$1"
+  if [ "$HEADLESS" = true ]; then
+    echo "[dl-headless] GATE AUTO-APPROVED: $msg" >> "${DEVLINE_LOG:-/tmp/devline-headless.log}"
+    return 0
+  fi
+  return 0
+}
+
+# --- Project root detection ---
+# 1. .devline/ in current directory? → use it
+# 2. .devline/ at git root? → use it
+# 3. Neither? → create .devline/ in current directory
+# NEVER go above git root.
+
+GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "Error: not inside a git repository" >&2; exit 1
+}
+
+if [ -d ".devline" ]; then
+  PROJECT_ROOT="$(pwd)"
+elif [ -d "$GIT_ROOT/.devline" ]; then
+  PROJECT_ROOT="$GIT_ROOT"
+else
+  PROJECT_ROOT="$(pwd)"
+fi
+
+DEVLINE_DIR="$PROJECT_ROOT/.devline"
+CONFIG="$DEVLINE_DIR/config.json"
+MEMORY="$DEVLINE_DIR/memory.md"
+
+# --- Stack detection ---
+detect_stack() {
+  local root="$1"
+  local runtime="" frontend=""
+  local f
+
+  for f in "$root/package.json" "$root/vite.config.ts" "$root/vite.config.js" \
+            "$root/next.config.js" "$root/next.config.ts" \
+            "$root/requirements.txt" "$root/go.mod" "$root/Cargo.toml" \
+            "$root/Gemfile" "$root/pyproject.toml"; do
+    [ -f "$f" ] || continue
+    case "$(basename "$f")" in
+      package.json) runtime="nodejs" ;;
+      vite.config.*) frontend="sveltekit" ;;
+      next.config.*) frontend="nextjs" ;;
+      requirements.txt|pyproject.toml) runtime="python" ;;
+      go.mod) runtime="go" ;;
+      Cargo.toml) runtime="rust" ;;
+      Gemfile) runtime="ruby" ;;
+    esac
+  done
+
+  # Check for .NET (csproj/sln files anywhere in project)
+  if find "$root" -maxdepth 3 -name "*.csproj" -o -name "*.sln" 2>/dev/null | head -1 | grep -q '\.\(csproj\|sln\)'; then
+    runtime="dotnet"
+  fi
+
+  echo "{\"runtime\":\"${runtime:-unknown}\",\"frontend\":\"${frontend:-null}\"}"
+}
+
+# --- Check codebase-memory-mcp is available ---
+check_mcp() {
+  # DEVLINE_MCP_MOCK=1 skips real MCP calls (for tests)
+  if [ "${DEVLINE_MCP_MOCK:-}" = "1" ]; then return 0; fi
+  if ! command -v codebase-memory-mcp &>/dev/null; then
+    echo "Error: codebase-memory-mcp not found." >&2
+    echo "Install with: dl-install --mcp" >&2
+    exit 1
+  fi
+}
+
+# --- Mock MCP calls (for DEVLINE_MCP_MOCK=1) ---
+mcp_index() { :; }  # no-op
+mcp_architecture() { echo "{}"; }
+mcp_search() { echo "[]"; }
+
+case "$MODE" in
+  scan)
+    check_mcp
+    STACK=$(detect_stack "$PROJECT_ROOT")
+    echo "{\"project_root\":\"$PROJECT_ROOT\",\"git_root\":\"$GIT_ROOT\",\"stack\":$STACK}"
+    ;;
+
+  write-memory|init)
+    check_mcp
+    mkdir -p "$DEVLINE_DIR"
+
+    # Index repository via codebase-memory-mcp CLI
+    if [ "${DEVLINE_MCP_MOCK:-}" = "1" ]; then
+      echo "[dl-init] (mock) Skipping MCP indexing"
+      ARCH="{}"
+      TOP_NODES="[]"
+    else
+      echo "[dl-init] Indexing repository..."
+      codebase-memory-mcp cli index_repository "{\"repo_path\":\"$PROJECT_ROOT\"}" || {
+        echo "Error: codebase-memory-mcp indexing failed" >&2; exit 1
+      }
+
+      # Get architecture overview
+      echo "[dl-init] Generating memory..."
+      ARCH=$(codebase-memory-mcp cli get_architecture "{}" 2>/dev/null || echo "{}")
+
+      # Get top nodes by graph degree (proxy for PageRank)
+      TOP_NODES=$(codebase-memory-mcp cli search_graph \
+        "{\"limit\":50,\"min_degree\":2}" 2>/dev/null || echo "[]")
+    fi
+
+    # Detect stack
+    STACK=$(detect_stack "$PROJECT_ROOT")
+
+    # Write config.json if not present
+    if [ ! -f "$CONFIG" ]; then
+      SERVICE=$(basename "$PROJECT_ROOT")
+      cat > "$CONFIG" << JSON
+{
+  "service": "$SERVICE",
+  "mode": "project",
+  "stack": $STACK,
+  "last_synced": "$(git rev-parse HEAD 2>/dev/null || echo 'unknown')",
+  "classifiers": [],
+  "review_checks": ["naming","test-coverage","unclassified","impact-radius","dead-code","clone-detection"],
+  "auto_skills": [],
+  "quality_hooks": {}
+}
+JSON
+    else
+      # Update last_synced only
+      TMP=$(mktemp)
+      python3 -c "
+import json, sys
+c = json.load(open('$CONFIG'))
+c['last_synced'] = '$(git rev-parse HEAD 2>/dev/null || echo unknown)'
+json.dump(c, open('$TMP','w'), indent=2)
+"
+      mv "$TMP" "$CONFIG"
+    fi
+
+    # Render memory.md
+    python3 - "$MEMORY" "$ARCH" "$TOP_NODES" << 'PYEOF'
+import json, sys
+
+memory_path = sys.argv[1]
+arch = json.loads(sys.argv[2]) if sys.argv[2] != '{}' else {}
+nodes = json.loads(sys.argv[3]) if sys.argv[3] != '[]' else []
+
+lines = ["# Devline Memory\n"]
+
+# Architecture section
+lines.append("## Architecture\n")
+if arch:
+    if arch.get("languages"):
+        lines.append(f"**Languages:** {', '.join(arch['languages'])}\n")
+    if arch.get("entry_points"):
+        lines.append(f"**Entry Points:** {', '.join(arch['entry_points'][:5])}\n")
+    if arch.get("clusters"):
+        lines.append(f"**Modules:** {', '.join(arch['clusters'][:5])}\n")
+    if arch.get("hotspots"):
+        lines.append(f"**Hotspots:** {', '.join(str(h) for h in arch['hotspots'][:5])}\n")
+
+lines.append("\n## Top Nodes\n")
+for n in nodes[:50]:
+    name = n.get("name", "?")
+    label = n.get("label", "?")
+    file_ = n.get("file", "")
+    lines.append(f"- **{name}** [{label}] — {file_}\n")
+
+content = "\n".join(lines)
+# Cap at ~2500 tokens (~10000 chars)
+if len(content) > 10000:
+    content = content[:9900] + "\n\n[truncated for token budget]\n"
+
+with open(memory_path, "w") as f:
+    f.write(content)
+print(f"[dl-init] memory.md written ({len(content)} chars)")
+PYEOF
+
+    echo "[dl-init] ✅ Devline initialized at $DEVLINE_DIR"
+    ;;
+
+  reset)
+    rm -rf "$DEVLINE_DIR"
+    echo "[dl-init] Reset complete. Run /dl-init to reinitialize."
+    ;;
+
+  orchestrator)
+    mkdir -p "$DEVLINE_DIR"
+    # Discover child .devline/ directories
+    PROJECTS="[]"
+    while IFS= read -r -d '' dir; do
+      path="${dir%/.devline}"
+      name="$(basename "$path")"
+      rel="$(python3 -c "import os; print(os.path.relpath('$path', '$PROJECT_ROOT'))")"
+      PROJECTS=$(echo "$PROJECTS" | python3 -c "
+import json,sys
+p=json.load(sys.stdin)
+p.append({'name':'$name','path':'$rel'})
+print(json.dumps(p))
+")
+    done < <(find "$PROJECT_ROOT" -mindepth 2 -maxdepth 4 -name ".devline" -type d -print0)
+
+    cat > "$CONFIG" << JSON
+{
+  "service": "$(basename "$PROJECT_ROOT")",
+  "mode": "orchestrator",
+  "projects": $PROJECTS,
+  "last_synced": "$(git rev-parse HEAD 2>/dev/null || echo 'unknown')"
+}
+JSON
+    echo "[dl-init] ✅ Orchestrator initialized with projects: $PROJECTS"
+    ;;
+esac

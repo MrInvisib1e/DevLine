@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ─── constants ────────────────────────────────────────────────────────────────
+
+DEVLINE_VERSION="4.0.0"
+# Allow override for tests; default to ~/.devline/workspaces/
+WORKSPACE_DIR="${DEVLINE_WORKSPACE_DIR:-$HOME/.devline/workspaces}"
+
+# ─── helpers ──────────────────────────────────────────────────────────────────
+
+err() { echo "[Devline] $*" >&2; }
+
+check_prereqs() {
+  if ! command -v jq >/dev/null 2>&1; then
+    err "Missing prerequisite: jq"
+    exit 1
+  fi
+}
+
+check_git() {
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    err "Not a git repo."
+    exit 1
+  fi
+}
+
+atomic_write() {
+  local file="$1" content="$2"
+  local tmp="${file}.tmp"
+  if [[ -e "$file" && ! -w "$file" ]]; then
+    err "Cannot write to $file: permission denied"
+    return 1
+  fi
+  printf '%s' "$content" > "$tmp"
+  sync 2>/dev/null || true
+  mv "$tmp" "$file"
+}
+
+registry_file() {
+  local workspace="$1"
+  echo "${WORKSPACE_DIR}/${workspace}.json"
+}
+
+# ─── commands ─────────────────────────────────────────────────────────────────
+
+cmd_version() {
+  echo "Devline $DEVLINE_VERSION"
+  exit 0
+}
+
+cmd_add() {
+  local workspace="$1" service="$2" path="$3"
+  check_prereqs
+  mkdir -p "$WORKSPACE_DIR"
+  local reg
+  reg=$(registry_file "$workspace")
+  local existing="{}"
+  if [[ -f "$reg" ]]; then
+    existing=$(cat "$reg")
+  fi
+  local updated
+  updated=$(echo "$existing" | jq --arg svc "$service" --arg path "$path" '. + {($svc): $path}')
+  atomic_write "$reg" "$updated"
+  echo "[Devline] Registered $service -> $path in workspace $workspace."
+}
+
+cmd_remove() {
+  local workspace="$1" service="$2"
+  check_prereqs
+  local reg
+  reg=$(registry_file "$workspace")
+  if [[ ! -f "$reg" ]]; then
+    err "Workspace \"$workspace\" not registered."
+    exit 1
+  fi
+  local exists
+  exists=$(jq -r --arg svc "$service" '.[$svc] // empty' "$reg")
+  if [[ -z "$exists" ]]; then
+    err "Service \"$service\" not found in workspace \"$workspace\"."
+    exit 1
+  fi
+  local updated
+  updated=$(jq --arg svc "$service" 'del(.[$svc])' "$reg")
+  atomic_write "$reg" "$updated"
+  echo "[Devline] Removed $service from workspace $workspace."
+}
+
+cmd_list() {
+  check_prereqs
+  if [[ ! -d "$WORKSPACE_DIR" ]]; then
+    echo "[Devline] No workspaces registered. Use dl-workspace add <name> <service> <path>."
+    exit 0
+  fi
+  local files=()
+  # Use nullglob-style: check if any .json files exist
+  while IFS= read -r f; do
+    files+=("$f")
+  done < <(find "$WORKSPACE_DIR" -maxdepth 1 -name "*.json" 2>/dev/null | sort)
+
+  if [[ "${#files[@]}" -eq 0 ]]; then
+    echo "[Devline] No workspaces registered. Use dl-workspace add <name> <service> <path>."
+    exit 0
+  fi
+  for f in "${files[@]}"; do
+    local name
+    name=$(basename "$f" .json)
+    echo "Workspace: $name"
+    jq -r 'to_entries[] | "  \(.key): \(.value)"' "$f"
+  done
+}
+
+cmd_read() {
+  local workspace="$1" service="$2" memory_file="$3"
+  check_prereqs
+  local reg
+  reg=$(registry_file "$workspace")
+  if [[ ! -f "$reg" ]]; then
+    err "Workspace \"$workspace\" not registered. Run dl-workspace add <name> <service> <path>."
+    exit 1
+  fi
+  local sibling_path
+  sibling_path=$(jq -r --arg svc "$service" '.[$svc] // empty' "$reg")
+  if [[ -z "$sibling_path" ]]; then
+    err "Service \"$service\" not found in workspace \"$workspace\"."
+    exit 1
+  fi
+  if [[ ! -d "$sibling_path" ]]; then
+    err "Sibling \"$service\" path not found: $sibling_path. Skipping."
+    exit 1
+  fi
+  if [[ ! -d "$sibling_path/.devline" ]]; then
+    err "Sibling \"$service\" has no .devline/ directory. Run dl-init in that repo first. Skipping."
+    exit 1
+  fi
+  local target_file="${sibling_path}/.devline/${memory_file}"
+  if [[ ! -f "$target_file" ]] || [[ ! -s "$target_file" ]]; then
+    err "Sibling \"$service\" ${memory_file} is empty or unreadable. Skipping."
+    exit 1
+  fi
+  cat "$target_file"
+}
+
+cmd_worktree_create() {
+  local branch="$1"
+  check_git
+
+  local root
+  root="$(git rev-parse --show-toplevel)"
+  local worktree_path="${root}/.devline/worktrees/${branch}"
+
+  if [[ -d "$worktree_path" ]]; then
+    err "Worktree for branch \"${branch}\" already exists at: ${worktree_path}"
+    exit 1
+  fi
+
+  mkdir -p "$(dirname "$worktree_path")"
+  git worktree add "$worktree_path" -b "$branch"
+  echo "[Devline] Worktree created at: ${worktree_path}"
+}
+
+cmd_worktree_remove() {
+  local branch="$1"
+  check_git
+
+  local root
+  root="$(git rev-parse --show-toplevel)"
+  local worktree_path="${root}/.devline/worktrees/${branch}"
+
+  if [[ ! -d "$worktree_path" ]]; then
+    err "Worktree for branch \"${branch}\" not found at: ${worktree_path}"
+    exit 1
+  fi
+
+  git worktree remove "$worktree_path" --force
+  git branch -D "$branch" || true
+  echo "[Devline] Worktree removed: ${worktree_path}"
+}
+
+# ─── dispatch ─────────────────────────────────────────────────────────────────
+
+case "${1:-}" in
+  --version) cmd_version ;;
+  add)
+    if [[ $# -lt 4 ]]; then
+      err "Usage: dl-workspace add <workspace> <service> <path>"
+      exit 1
+    fi
+    cmd_add "$2" "$3" "$4"
+    ;;
+  remove)
+    if [[ $# -lt 3 ]]; then
+      err "Usage: dl-workspace remove <workspace> <service>"
+      exit 1
+    fi
+    cmd_remove "$2" "$3"
+    ;;
+  list)
+    cmd_list
+    ;;
+  read)
+    if [[ $# -lt 4 ]]; then
+      err "Usage: dl-workspace read <workspace> <service> <memory-file>"
+      exit 1
+    fi
+    cmd_read "$2" "$3" "$4"
+    ;;
+  create)
+    if [[ $# -lt 2 ]]; then
+      err "Usage: dl-workspace create <branch>"
+      exit 1
+    fi
+    cmd_worktree_create "$2"
+    ;;
+  worktree-remove)
+    if [[ $# -lt 2 ]]; then
+      err "Usage: dl-workspace worktree-remove <branch>"
+      exit 1
+    fi
+    cmd_worktree_remove "$2"
+    ;;
+  '')
+    err "Usage: dl-workspace <add|remove|list|read|create|worktree-remove> [args] | --version"
+    exit 1
+    ;;
+  *)
+    err "Unknown subcommand: $1"
+    exit 1
+    ;;
+esac

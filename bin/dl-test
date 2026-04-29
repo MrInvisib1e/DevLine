@@ -1,0 +1,298 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ─── constants ────────────────────────────────────────────────────────────────
+
+DEVLINE_VERSION="4.0.0"
+
+# ─── helpers ──────────────────────────────────────────────────────────────────
+
+err() { echo "[Devline] $*" >&2; }
+
+check_prereqs() {
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    err "Not a git repo."
+    exit 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    err "Missing prerequisite: jq"
+    exit 1
+  fi
+}
+
+atomic_write() {
+  local file="$1" content="$2"
+  local tmp="${file}.tmp"
+  if [[ -e "$file" && ! -w "$file" ]]; then return 1; fi
+  printf '%s' "$content" > "$tmp"
+  sync 2>/dev/null || true
+  mv "$tmp" "$file"
+}
+
+# ─── per-slice JSON helpers ───────────────────────────────────────────────────
+
+# Find slice file by ID in the given plan directory
+find_slice_file() {
+  local plan_dir="$1" slice_id="$2"
+  local f
+  for f in "$plan_dir"/*slice-*.json; do
+    [[ -f "$f" ]] || continue
+    local fid
+    fid=$(jq -r '.id' "$f" 2>/dev/null) || continue
+    if [[ "$fid" == "$slice_id" ]]; then
+      echo "$f"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Write status and test_result back to a per-slice JSON file
+write_slice_result() {
+  local slice_file="$1" new_status="$2" test_result="$3"
+  local tmpfile
+  tmpfile=$(mktemp)
+  jq --arg status "$new_status" --arg result "$test_result" \
+    '.status = $status | .test_result = $result' \
+    "$slice_file" > "$tmpfile"
+  mv "$tmpfile" "$slice_file"
+}
+
+# ─── commands ─────────────────────────────────────────────────────────────────
+
+cmd_version() {
+  echo "Devline $DEVLINE_VERSION"
+  exit 0
+}
+
+cmd_list() {
+  check_prereqs
+
+  local devline_dir
+  devline_dir="$(git rev-parse --show-toplevel)/.devline"
+
+  # Try per-slice format first
+  local plan_dir
+  plan_dir=$(readlink -f "${devline_dir}/active" 2>/dev/null)
+  if [[ -n "$plan_dir" ]]; then
+    local slice_files=("${plan_dir}"/plans/*/slice-*.json)
+    if [[ -e "${slice_files[0]}" ]]; then
+      # Extract plan name from directory
+      local plan_name
+      plan_name=$(basename "$(dirname "${slice_files[0]}")")
+      echo "[Devline] Active plan: ${plan_name}"
+      for f in "${slice_files[@]}"; do
+        local name status test_result
+        name=$(jq -r '.name // .id // "unknown"' "$f")
+        status=$(jq -r '.status // "pending"' "$f")
+        test_result=$(jq -r '.test_result // "-"' "$f")
+        printf "  %-40s %-15s %s\n" "$(basename "$f")" "$status" "$test_result"
+      done
+      return 0
+    fi
+  fi
+
+  # Legacy fallback: slices.json
+  local slices_file="${devline_dir}/active/slices.json"
+  if [[ ! -f "$slices_file" ]]; then
+    err "No active slice plan found."
+    err "Run \`/feature\` to start a new feature."
+    return 1
+  fi
+
+  local feature approved_at
+  feature=$(jq -r '.feature' "$slices_file")
+  approved_at=$(jq -r '.approved_at' "$slices_file")
+
+  echo "Slice plan: $feature (approved $approved_at)"
+
+  while IFS= read -r slice; do
+    local id name status
+    id=$(printf '%s' "$slice" | jq -r '.id')
+    name=$(printf '%s' "$slice" | jq -r '.name')
+    status=$(printf '%s' "$slice" | jq -r '.status')
+    printf '  [%-11s] %d  %s\n' "$status" "$id" "$name"
+  done < <(jq -c '.slices[]' "$slices_file")
+}
+
+cmd_run() {
+  local slice_id="$1"
+
+  check_prereqs
+
+  local devline_dir
+  devline_dir="$(git rev-parse --show-toplevel)/.devline"
+  local active_dir="${devline_dir}/active"
+  local slices_file="${active_dir}/slices.json"
+
+  # ── Per-slice JSON mode detection ──────────────────────────────────────────
+  # Check if .devline/active exists and contains *slice-*.json files
+  if [[ -d "$active_dir" ]] || [[ -L "$active_dir" ]]; then
+    # Collect matching slice files
+    local slice_files=()
+    local f
+    for f in "$active_dir"/*slice-*.json; do
+      [[ -f "$f" ]] && slice_files+=("$f")
+    done
+
+    if [[ "${#slice_files[@]}" -gt 0 ]]; then
+      # ── Per-slice mode ──────────────────────────────────────────────────────
+
+      # Check for DEVLINE_TEST_CMD override
+      if [[ -n "${DEVLINE_TEST_CMD:-}" ]]; then
+        echo "[Devline] Running slice ${slice_id} (DEVLINE_TEST_CMD override)"
+        set +e
+        # shellcheck disable=SC2294
+        ( eval "$DEVLINE_TEST_CMD" )
+        local exit_code=$?
+        set -e
+        if [[ "$exit_code" -eq 0 ]]; then
+          echo "[Devline] PASS"
+        else
+          echo "[Devline] FAIL (exit ${exit_code})"
+        fi
+        exit "$exit_code"
+      fi
+
+      # Find the slice file matching the given ID
+      local slice_file
+      if ! slice_file=$(find_slice_file "$active_dir" "$slice_id"); then
+        err "Slice ${slice_id} not found in per-slice JSON files."
+        exit 1
+      fi
+
+      local slice_basename
+      slice_basename=$(basename "$slice_file" .json)
+
+      local slice_name test_cmd
+      slice_name=$(jq -r '.name' "$slice_file")
+      test_cmd=$(jq -r '.test_cmd // empty' "$slice_file")
+
+      if [[ -z "$test_cmd" ]]; then
+        err "Slice ${slice_id} has no test_cmd defined."
+        exit 1
+      fi
+
+      echo "[Devline] Running ${slice_basename}: ${slice_name}"
+
+      set +e
+      # shellcheck disable=SC2294
+      ( eval "$test_cmd" )
+      local exit_code=$?
+      set -e
+
+      if [[ "$exit_code" -eq 0 ]]; then
+        echo "[Devline] PASS"
+        write_slice_result "$slice_file" "done" "PASS"
+      else
+        echo "[Devline] FAIL (exit ${exit_code})"
+        write_slice_result "$slice_file" "failed" "FAIL"
+      fi
+
+      exit "$exit_code"
+    else
+      # No slice-*.json files found — fall back to legacy slices.json
+      echo "[WARN] No slice-*.json files found in .devline/active/. Falling back to legacy slices.json format (deprecated)." >&2
+    fi
+  fi
+
+  # ── Legacy slices.json mode ─────────────────────────────────────────────────
+
+  # Check for DEVLINE_TEST_CMD override first — can run even without slices.json
+  if [[ -n "${DEVLINE_TEST_CMD:-}" ]]; then
+    echo "[Devline] Running slice ${slice_id} (DEVLINE_TEST_CMD override)"
+    set +e
+    # shellcheck disable=SC2294
+    ( eval "$DEVLINE_TEST_CMD" )
+    local exit_code=$?
+    set -e
+    if [[ "$exit_code" -eq 0 ]]; then
+      echo "[Devline] PASS"
+    else
+      echo "[Devline] FAIL (exit ${exit_code})"
+    fi
+    # Update slices.json if it exists
+    if [[ -f "$slices_file" ]]; then
+      local new_status="failed"
+      [[ "$exit_code" -eq 0 ]] && new_status="done"
+      local updated
+      updated=$(jq --argjson id "$slice_id" --arg s "$new_status" \
+        '.slices = [.slices[] | if .id == $id then .status = $s else . end]' \
+        "$slices_file")
+      atomic_write "$slices_file" "$updated"
+    fi
+    exit "$exit_code"
+  fi
+
+  # No env override — require slices.json
+  if [[ ! -f "$slices_file" ]]; then
+    if [[ ! -d "$devline_dir" ]]; then
+      err "No test command found. Set DEVLINE_TEST_CMD or run dl-init."
+    else
+      err "No slice plan found. Run the feature skill to create one."
+    fi
+    exit 1
+  fi
+
+  # Find the slice
+  local slice_json
+  slice_json=$(jq -r --argjson id "$slice_id" '.slices[] | select(.id == $id)' "$slices_file")
+  if [[ -z "$slice_json" ]]; then
+    err "Slice ${slice_id} not found in slices.json."
+    exit 1
+  fi
+
+  local slice_name test_cmd
+  slice_name=$(printf '%s' "$slice_json" | jq -r '.name')
+  test_cmd=$(printf '%s' "$slice_json" | jq -r '.test_cmd // empty')
+
+  if [[ -z "$test_cmd" ]]; then
+    err "Slice ${slice_id} has no test_cmd defined."
+    exit 1
+  fi
+
+  echo "[Devline] Running slice ${slice_id}: ${slice_name}"
+
+  set +e
+  # shellcheck disable=SC2294
+  ( eval "$test_cmd" )
+  local exit_code=$?
+  set -e
+
+  local new_status="failed"
+  if [[ "$exit_code" -eq 0 ]]; then
+    echo "[Devline] PASS"
+    new_status="done"
+  else
+    echo "[Devline] FAIL (exit ${exit_code})"
+  fi
+
+  # Write status back atomically
+  local updated
+  updated=$(jq --argjson id "$slice_id" --arg s "$new_status" \
+    '.slices = [.slices[] | if .id == $id then .status = $s else . end]' \
+    "$slices_file")
+  atomic_write "$slices_file" "$updated"
+
+  exit "$exit_code"
+}
+
+# ─── dispatch ─────────────────────────────────────────────────────────────────
+
+case "${1:-}" in
+  --version) cmd_version ;;
+  --list)    cmd_list ;;
+  ''|-*)
+    err "Usage: dl-test <slice-id> | --list | --version"
+    exit 1
+    ;;
+  *)
+    SLICE_ID="$1"
+    # Validate it's a number
+    if ! [[ "$SLICE_ID" =~ ^[0-9]+$ ]]; then
+      err "Slice ID must be a positive integer. Got: ${SLICE_ID}"
+      exit 1
+    fi
+    cmd_run "$SLICE_ID"
+    ;;
+esac

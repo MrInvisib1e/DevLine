@@ -1,0 +1,51 @@
+{
+  "name": "@devline/cli",
+  "version": "0.5.0",
+  "description": "Skill library that makes AI coding assistants behave like senior engineers",
+  "type": "module",
+  "main": ".opencode/plugins/devline.js",
+  "bin": {
+    "devline": "./bin/devline",
+    "dl": "./bin/dl",
+    "dl-init": "./bin/dl-init",
+    "dl-install": "./bin/dl-install.mjs",
+    "dl-explain": "./bin/dl-explain",
+    "dl-check": "./bin/dl-check",
+    "dl-test": "./bin/dl-test",
+    "dl-workspace": "./bin/dl-workspace",
+    "dl-benchmark": "./bin/dl-benchmark",
+    "dl-update": "./bin/dl-update.mjs"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "skills/",
+    "hooks/",
+    ".claude-plugin/",
+    ".cursor-plugin/",
+    ".opencode/",
+    "gemini-extension.json",
+    "GEMINI.md",
+    ".codex/"
+  ],
+  "scripts": {
+    "test": "node --test tests/installer/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/<org>/devline.git"
+  },
+  "homepage": "https://github.com/<org>/devline",
+  "license": "MIT",
+  "devline": {
+    "skills_dir": "./skills",
+    "bootstrap_skill": "using-devline",
+    "mcp_server": "codebase-memory-mcp"
+  }
+}

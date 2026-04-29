@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "last_synced": "abc1234",
+  "stack": {
+    "runtime": "dotnet-9",
+    "frontend": "sveltekit",
+    "test_cmd": "dotnet test",
+    "key_dependencies": ["MediatR", "EF Core"]
+  },
+  "architecture": {
+    "layers": ["API", "Service", "Domain"],
+    "folder_structure": {
+      "Entities": "domain models",
+      "Services": "business logic",
+      "Contracts": "event contracts"
+    },
+    "patterns": ["CQRS", "Repository pattern"]
+  },
+  "conventions": {
+    "naming": ["PascalCase for C# types", "kebab-case for routes"],
+    "anti_patterns": ["no direct DB access outside repositories"],
+    "file_structure": ["one class per file"]
+  }
+}

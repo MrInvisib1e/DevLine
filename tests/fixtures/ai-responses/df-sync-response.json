@@ -1,0 +1,36 @@
+{
+  "batch": [
+    {
+      "path": "Entities/Comment.cs",
+      "intent": "Soft-deletable content unit attached to a story",
+      "confidence": "ai",
+      "edges": [
+        { "to_file": "Services/CommentService.cs", "rel": "uses" }
+      ]
+    },
+    {
+      "path": "Services/CommentService.cs",
+      "intent": "Owns all comment mutations",
+      "confidence": "ai",
+      "edges": []
+    },
+    {
+      "path": "Contracts/CommentCreatedEvent.cs",
+      "intent": "Event emitted when a new comment is created",
+      "confidence": "ai",
+      "edges": []
+    },
+    {
+      "path": "src/routes/+page.svelte",
+      "intent": "Home page route",
+      "confidence": "ai",
+      "edges": []
+    },
+    {
+      "path": "src/lib/utils/slug.ts",
+      "intent": "URL slug utility",
+      "confidence": "ai",
+      "edges": []
+    }
+  ]
+}
