@@ -1,0 +1,94 @@
+<h2>Design: Graph Memory Schema</h2>
+<p class="subtitle">Section 1 of 3 — nodes.json + edges.json structure. Does this look right?</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">nodes.json</div>
+    <div class="mockup-body" style="font-size:12px;font-family:monospace;color:#a8d8a8;background:#1a1a2e;padding:12px;border-radius:6px">
+      {<br>
+      &nbsp;&nbsp;"schema_version": 1,<br>
+      &nbsp;&nbsp;"nodes": [<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;{<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"id"</span>: "Comment",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"name"</span>: "Comment",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"type"</span>: "entity",<span style="color:#888"> ← built-in</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"file"</span>: "Entities/Comment.cs",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"intent"</span>: "Soft-deletable — hide, never purge",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"confidence"</span>: "high",<span style="color:#888"> ← high/inferred/ai</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"last_seen_sha"</span>: "a3f9c12"<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;},<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;{<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"id"</span>: "CommentService",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"type"</span>: "service",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"file"</span>: "Services/CommentService.cs",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"intent"</span>: "Owns all comment mutations",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"confidence"</span>: "high",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"last_seen_sha"</span>: "a3f9c12"<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+      &nbsp;&nbsp;]<br>
+      }
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">edges.json</div>
+    <div class="mockup-body" style="font-size:12px;font-family:monospace;color:#a8d8a8;background:#1a1a2e;padding:12px;border-radius:6px">
+      {<br>
+      &nbsp;&nbsp;"schema_version": 1,<br>
+      &nbsp;&nbsp;"edges": [<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;{<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"from"</span>: "Comment",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"to"</span>: "User",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"rel"</span>: "depends_on",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"intent"</span>: "author ownership",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"last_seen_sha"</span>: "a3f9c12"<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;},<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;{<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"from"</span>: "CommentService",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"to"</span>: "Comment",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"rel"</span>: "uses",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"intent"</span>: "CRUD — create, soft-delete, list by story",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"last_seen_sha"</span>: "a3f9c12"<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;},<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;{<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"from"</span>: "Comment",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"to"</span>: "comments",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"rel"</span>: "persisted_in",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"intent"</span>: "soft-delete via is_hidden flag",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f9c74f">"last_seen_sha"</span>: "a3f9c12"<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+      &nbsp;&nbsp;]<br>
+      }
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px">
+  <h3>Built-in relationship types</h3>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:8px">
+    <div style="background:#12121f;border-radius:6px;padding:10px;font-size:12px">
+      <span style="color:#f9c74f;font-family:monospace">depends_on</span><br>
+      <span style="color:#888">requires another node to function</span>
+    </div>
+    <div style="background:#12121f;border-radius:6px;padding:10px;font-size:12px">
+      <span style="color:#f9c74f;font-family:monospace">uses</span><br>
+      <span style="color:#888">calls or instantiates</span>
+    </div>
+    <div style="background:#12121f;border-radius:6px;padding:10px;font-size:12px">
+      <span style="color:#f9c74f;font-family:monospace">persisted_in</span><br>
+      <span style="color:#888">maps to a DB table/collection</span>
+    </div>
+    <div style="background:#12121f;border-radius:6px;padding:10px;font-size:12px">
+      <span style="color:#f9c74f;font-family:monospace">implements</span><br>
+      <span style="color:#888">satisfies an interface/contract</span>
+    </div>
+    <div style="background:#12121f;border-radius:6px;padding:10px;font-size:12px">
+      <span style="color:#f9c74f;font-family:monospace">emits</span><br>
+      <span style="color:#888">publishes an event/message</span>
+    </div>
+    <div style="background:#12121f;border-radius:6px;padding:10px;font-size:12px">
+      <span style="color:#f9c74f;font-family:monospace">handles</span><br>
+      <span style="color:#888">consumes an event/message</span>
+    </div>
+  </div>
+</div>

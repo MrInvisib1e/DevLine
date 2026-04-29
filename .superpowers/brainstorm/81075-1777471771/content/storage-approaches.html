@@ -1,0 +1,61 @@
+<h2>How should the graph be stored?</h2>
+<p class="subtitle">Three approaches to fitting the graph into the existing .devflow/ structure</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Single memory.json — nodes[] array</h3>
+      <p>Extend the existing <code>memory.json</code> with a flat <code>nodes[]</code> array. Each node has typed edges + intent inline. One file, one source of truth.</p>
+      <div style="background:#1a1a2e;border-radius:8px;padding:10px;margin-top:8px;font-size:11px;font-family:monospace;color:#a8d8a8">
+        memory.json<br>
+        ├── stack, architecture, conventions (existing)<br>
+        └── nodes[] ← new<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;├── { name, type, file, depends_on[], used_by[], intent }<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;└── ...
+      </div>
+      <div class="pros-cons" style="margin-top:8px;font-size:12px">
+        <div class="pros"><h4>Pros</h4><ul><li>No new files</li><li>df-sync patches one place</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>File grows large on big codebases</li><li>Patching one node rewrites the whole array</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Split — nodes.json + edges.json ⭐ Recommended</h3>
+      <p>Node definitions and relationships live in separate files. <code>df-sync</code> patches only the file it needs. <code>df-explain</code> loads both and joins them.</p>
+      <div style="background:#1a1a2e;border-radius:8px;padding:10px;margin-top:8px;font-size:11px;font-family:monospace;color:#a8d8a8">
+        .devflow/active/<br>
+        ├── memory.json (stack, arch, conventions)<br>
+        ├── nodes.json ← { id, name, type, file, intent, confidence }<br>
+        └── edges.json ← { from, to, rel, intent, last_seen_sha }
+      </div>
+      <div class="pros-cons" style="margin-top:8px;font-size:12px">
+        <div class="pros"><h4>Pros</h4><ul><li>Add edge without touching node definitions</li><li>Edges get staleness tracking independently</li><li>Scales to large codebases</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Two files to keep consistent</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Node-per-file directory</h3>
+      <p>Each node gets its own JSON file: <code>nodes/CommentEntity.json</code>. Surgical updates — change one node, write one file.</p>
+      <div style="background:#1a1a2e;border-radius:8px;padding:10px;margin-top:8px;font-size:11px;font-family:monospace;color:#a8d8a8">
+        .devflow/active/<br>
+        ├── memory.json<br>
+        └── nodes/<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;├── CommentEntity.json<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;├── CommentService.json<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;└── ...
+      </div>
+      <div class="pros-cons" style="margin-top:8px;font-size:12px">
+        <div class="pros"><h4>Pros</h4><ul><li>Most surgical patching</li><li>Easy to delete a node</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Many small files</li><li>Graph traversal requires loading many files</li><li>Overkill for most repos</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>

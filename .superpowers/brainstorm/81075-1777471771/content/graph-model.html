@@ -1,0 +1,57 @@
+<h2>How should the graph nodes relate to each other?</h2>
+<p class="subtitle">Pick the relationship model that feels right for DevFlow's memory</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Typed Edges on Each Node</h3>
+      <p>Every node declares its relationships explicitly by type. Simple, predictable, easy for <code>df-explain</code> to traverse.</p>
+      <div style="background:#1a1a2e;border-radius:8px;padding:12px;margin-top:10px;font-size:12px;font-family:monospace;color:#a8d8a8">
+        {<br>
+        &nbsp;&nbsp;"name": "Comment",<br>
+        &nbsp;&nbsp;"type": "entity",<br>
+        &nbsp;&nbsp;"file": "Entities/Comment.cs",<br>
+        &nbsp;&nbsp;"depends_on": ["User", "Story"],<br>
+        &nbsp;&nbsp;"used_by": ["CommentService"],<br>
+        &nbsp;&nbsp;"persisted_in": "comments",<br>
+        &nbsp;&nbsp;"contracts": ["CommentCreatedEvent"]<br>
+        }
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Universal Edge List</h3>
+      <p>All relationships live in a single <code>edges[]</code> array. Flexible, queryable, but verbose. Good if edge types will grow over time.</p>
+      <div style="background:#1a1a2e;border-radius:8px;padding:12px;margin-top:10px;font-size:12px;font-family:monospace;color:#a8d8a8">
+        "edges": [<br>
+        &nbsp;&nbsp;{ "from": "Comment", "to": "User", "rel": "depends_on" },<br>
+        &nbsp;&nbsp;{ "from": "Comment", "to": "Story", "rel": "depends_on" },<br>
+        &nbsp;&nbsp;{ "from": "CommentService", "to": "Comment", "rel": "uses" },<br>
+        &nbsp;&nbsp;{ "from": "Comment", "to": "comments", "rel": "persisted_in" }<br>
+        ]
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Hybrid — Typed Edges + Intent</h3>
+      <p>Typed edges like A, but each relationship also carries an <code>intent</code> — the <em>why</em> behind the connection. Richest context for AI reasoning.</p>
+      <div style="background:#1a1a2e;border-radius:8px;padding:12px;margin-top:10px;font-size:12px;font-family:monospace;color:#a8d8a8">
+        {<br>
+        &nbsp;&nbsp;"name": "Comment",<br>
+        &nbsp;&nbsp;"depends_on": [<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;{ "node": "User", "intent": "author ownership" },<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;{ "node": "Story", "intent": "parent context" }<br>
+        &nbsp;&nbsp;],<br>
+        &nbsp;&nbsp;"intent": "Soft-deletable — hide, never purge"<br>
+        }
+      </div>
+    </div>
+  </div>
+</div>

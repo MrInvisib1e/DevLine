@@ -1,0 +1,70 @@
+<h2>Design: df-explain Impact Analysis</h2>
+<p class="subtitle">Section 3 of 3 — how df-explain traverses the graph to answer "what breaks if I change X?"</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Traversal algorithm</div>
+    <div class="mockup-body" style="font-size:12px;font-family:monospace;color:#a8d8a8;background:#1a1a2e;padding:12px;border-radius:6px;line-height:1.8">
+      df-explain Comment<br><br>
+      <span style="color:#888"># 1. Resolve input to node id</span><br>
+      &nbsp;&nbsp;match "Comment" in nodes.json<br>
+      &nbsp;&nbsp;→ found: Comment [entity]<br><br>
+      <span style="color:#888"># 2. BFS — outbound edges (what Comment depends on)</span><br>
+      &nbsp;&nbsp;edges where from == "Comment"<br>
+      &nbsp;&nbsp;→ depends_on: User, Story<br>
+      &nbsp;&nbsp;→ persisted_in: comments<br><br>
+      <span style="color:#888"># 3. BFS — inbound edges (what depends on Comment)</span><br>
+      &nbsp;&nbsp;edges where to == "Comment"<br>
+      &nbsp;&nbsp;→ CommentService uses Comment<br>
+      &nbsp;&nbsp;→ CommentController uses Comment<br>
+      &nbsp;&nbsp;→ CommentCreatedEvent depends_on Comment<br><br>
+      <span style="color:#888"># 4. Flag stale nodes in result</span><br>
+      &nbsp;&nbsp;check last_seen_sha per node<br><br>
+      <span style="color:#888"># 5. Output structured report</span>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">df-explain Comment — output</div>
+    <div class="mockup-body" style="font-size:12px;font-family:monospace;background:#1a1a2e;padding:12px;border-radius:6px;line-height:1.8">
+      <span style="color:#f9c74f">[Comment]</span> entity — Soft-deletable — hide, never purge<br>
+      file: Entities/Comment.cs<br>
+      confidence: high<br><br>
+
+      <span style="color:#90e0a0">DEPENDS ON (2)</span><br>
+      &nbsp;&nbsp;→ User [entity] — author ownership<br>
+      &nbsp;&nbsp;→ Story [entity] — parent context<br><br>
+
+      <span style="color:#f08080">DEPENDED ON BY (3) — changing Comment affects these:</span><br>
+      &nbsp;&nbsp;← CommentService [service] — CRUD operations<br>
+      &nbsp;&nbsp;← CommentController [route] — exposes POST /api/comments<br>
+      &nbsp;&nbsp;← CommentCreatedEvent [contract] — carries comment payload<br><br>
+
+      <span style="color:#c0c0f0">PERSISTED IN</span><br>
+      &nbsp;&nbsp;→ comments table — soft-delete via is_hidden flag<br><br>
+
+      <span style="color:#888">No stale entries detected.</span><br><br>
+      <span style="color:#888">[DevFlow] 3 nodes depend on Comment.<br>
+      Changing its shape will affect CommentService,<br>
+      CommentController, and CommentCreatedEvent.</span>
+    </div>
+  </div>
+</div>
+
+<div class="mockup" style="margin-top:20px">
+  <div class="mockup-header">df-explain — three input forms</div>
+  <div class="mockup-body" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:8px">
+    <div style="background:#12121f;border-radius:6px;padding:12px;font-size:12px">
+      <div style="color:#f9c74f;font-family:monospace;margin-bottom:6px">df-explain Comment</div>
+      <div style="color:#888">Match by node name. Exact or fuzzy — "Comm" finds Comment, CommentService.</div>
+    </div>
+    <div style="background:#12121f;border-radius:6px;padding:12px;font-size:12px">
+      <div style="color:#f9c74f;font-family:monospace;margin-bottom:6px">df-explain Entities/Comment.cs</div>
+      <div style="color:#888">Match by file path. Useful from editor — pass the open file directly.</div>
+    </div>
+    <div style="background:#12121f;border-radius:6px;padding:12px;font-size:12px">
+      <div style="color:#f9c74f;font-family:monospace;margin-bottom:6px">df-explain --depth 2 Comment</div>
+      <div style="color:#888">BFS depth flag. Default 1 (direct neighbours). Depth 2 shows neighbours-of-neighbours.</div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,77 @@
+<h2>Design: df-sync Graph Pipeline</h2>
+<p class="subtitle">Section 2 of 3 — how df-sync builds and maintains the graph. Does this look right?</p>
+
+<div class="mockup">
+  <div class="mockup-header">df-sync execution order (per changed file in diff)</div>
+  <div class="mockup-body">
+    <div style="display:flex;flex-direction:column;gap:8px;padding:8px">
+
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="background:#2d2d44;border-radius:20px;padding:4px 14px;font-size:12px;color:#f9c74f;white-space:nowrap;font-family:monospace">Step 1</div>
+        <div style="background:#12121f;border-radius:6px;padding:10px 14px;flex:1;font-size:13px">
+          <strong>Classify node type</strong> — run hybrid classifier (heuristics → AI fallback). Write/update entry in <code>nodes.json</code>. Set <code>confidence</code> and <code>last_seen_sha</code>.
+        </div>
+      </div>
+
+      <div style="text-align:center;color:#555;font-size:18px">↓</div>
+
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="background:#2d2d44;border-radius:20px;padding:4px 14px;font-size:12px;color:#f9c74f;white-space:nowrap;font-family:monospace">Step 2</div>
+        <div style="background:#12121f;border-radius:6px;padding:10px 14px;flex:1;font-size:13px">
+          <strong>Static analysis → edges</strong> — parse <code>using</code>/<code>import</code> statements, inheritance, interface implementations, function signatures. Extract raw edges: <code>{ from, to, rel }</code>. No intent yet. Write to <code>edges.json</code>.
+        </div>
+      </div>
+
+      <div style="text-align:center;color:#555;font-size:18px">↓</div>
+
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="background:#2d2d44;border-radius:20px;padding:4px 14px;font-size:12px;color:#f9c74f;white-space:nowrap;font-family:monospace">Step 3</div>
+        <div style="background:#12121f;border-radius:6px;padding:10px 14px;flex:1;font-size:13px">
+          <strong>Staleness sweep</strong> — any node or edge whose <code>last_seen_sha</code> is older than N commits and whose file no longer exists in HEAD → mark <code>"stale": true</code>. Skills surface stale nodes before reasoning.
+        </div>
+      </div>
+
+      <div style="text-align:center;color:#555;font-size:18px">↓ (batched, once per sync)</div>
+
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="background:#1a3a2a;border-radius:20px;padding:4px 14px;font-size:12px;color:#90e0a0;white-space:nowrap;font-family:monospace">AI Call</div>
+        <div style="background:#12121f;border-radius:6px;padding:10px 14px;flex:1;font-size:13px">
+          <strong>Intent inference</strong> — one batched Claude call receives: all new/updated nodes without intent + all new edges without intent + the diff. Returns intent strings only. Never re-infers structure. Also handles unclassified nodes from Step 1.
+        </div>
+      </div>
+
+      <div style="text-align:center;color:#555;font-size:18px">↓</div>
+
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="background:#2d2d44;border-radius:20px;padding:4px 14px;font-size:12px;color:#f9c74f;white-space:nowrap;font-family:monospace">Step 4</div>
+        <div style="background:#12121f;border-radius:6px;padding:10px 14px;flex:1;font-size:13px">
+          <strong>Pattern learning</strong> — AI-classified nodes write their inferred path pattern back to <code>config.json classifiers</code>. Same file type → heuristics next time.
+        </div>
+      </div>
+
+      <div style="text-align:center;color:#555;font-size:18px">↓</div>
+
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="background:#2d2d44;border-radius:20px;padding:4px 14px;font-size:12px;color:#f9c74f;white-space:nowrap;font-family:monospace">Step 5</div>
+        <div style="background:#12121f;border-radius:6px;padding:10px 14px;flex:1;font-size:13px">
+          <strong>Regenerate memory.md</strong> — render <code>memory.json</code> + <code>nodes.json</code> + <code>edges.json</code> into a single markdown file. Skills read this. Update <code>last_synced</code> SHA in <code>config.json</code>.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px">
+  <h3>memory.md graph section (rendered output skills read)</h3>
+  <div style="background:#1a1a2e;border-radius:8px;padding:12px;font-size:12px;font-family:monospace;color:#ccc">
+    <span style="color:#888">## Graph</span><br><br>
+    <span style="color:#f9c74f">Comment</span> [entity] — Soft-deletable — hide, never purge<br>
+    &nbsp;&nbsp;depends_on → <span style="color:#90e0a0">User</span> (author ownership)<br>
+    &nbsp;&nbsp;depends_on → <span style="color:#90e0a0">Story</span> (parent context)<br>
+    &nbsp;&nbsp;persisted_in → <span style="color:#90e0a0">comments</span> (soft-delete via is_hidden flag)<br><br>
+    <span style="color:#f9c74f">CommentService</span> [service] — Owns all comment mutations<br>
+    &nbsp;&nbsp;uses → <span style="color:#90e0a0">Comment</span> (CRUD — create, soft-delete, list by story)<br>
+    &nbsp;&nbsp;uses → <span style="color:#90e0a0">ICommentRepository</span> (data access)<br>
+    &nbsp;&nbsp;emits → <span style="color:#90e0a0">CommentCreatedEvent</span> (notifies feed service)<br>
+  </div>
+</div>
