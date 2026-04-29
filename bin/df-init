@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ─── constants ────────────────────────────────────────────────────────────────
+
+DEVFLOW_VERSION="0.1.0"
+
+DEFAULT_CLASSIFIERS=(
+  "entity:*Entities/*.cs:*Models/*.cs:*Domain/*.cs:*Domain/*/*.cs"
+  "route:*Controller.cs:*Endpoint.cs:*pages/*.svelte:*pages/*/*.svelte:*routes/*.svelte:*routes/*/*.svelte:*routes/*.ts:*routes/*/*.ts"
+  "contract:*Contracts/*:*Events/*:*Messages/*"
+  "service:*Services/*.cs:*Handlers/*.cs"
+  "conventions:.editorconfig:*.globalconfig:.eslintrc*:*.prettierrc*"
+  "architecture:Program.cs:Startup.cs:appsettings*.json:vite.config.*"
+)
+
+# ─── helpers ──────────────────────────────────────────────────────────────────
+
+err() { echo "[DevFlow] $*" >&2; }
+
+check_prereqs() {
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    err "Not a git repo. Run df-init inside a git repository."
+    exit 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    err "Missing prerequisite: jq >= 1.6 is required. Install with: brew install jq"
+    exit 1
+  fi
+}
+
+canonicalize_branch() {
+  echo "${1//\//__}"
+}
+
+# Match a file against glob patterns for a given classifier type.
+# Returns the type string if matched, empty string if not.
+#
+# Patterns use single-* prefix (e.g. *Entities/*.cs). In bash case statements,
+# * matches any character INCLUDING /, so *Entities/*.cs matches both
+# "Entities/Comment.cs" (root-level) and "src/Entities/Comment.cs" (nested).
+classify_file() {
+  local file="$1"
+  local type=""
+  for entry in "${DEFAULT_CLASSIFIERS[@]}"; do
+    local entry_type="${entry%%:*}"
+    local patterns="${entry#*:}"
+    IFS=':' read -ra pats <<< "$patterns"
+    for pat in "${pats[@]}"; do
+      # Use bash glob matching via case statement
+      # shellcheck disable=SC2254
+      case "$file" in
+        $pat)
+          type="$entry_type"
+          break 2
+          ;;
+      esac
+    done
+  done
+  echo "$type"
+}
+
+# ─── --version ────────────────────────────────────────────────────────────────
+
+cmd_version() {
+  echo "DevFlow $DEVFLOW_VERSION"
+  exit 0
+}
+
+# ─── --scan ───────────────────────────────────────────────────────────────────
+
+cmd_scan() {
+  check_prereqs
+
+  local head_sha
+  head_sha=$(git rev-parse HEAD 2>/dev/null || echo "none")
+
+  local branch
+  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+
+  local branch_canon
+  branch_canon=$(canonicalize_branch "$branch")
+
+  # Enumerate all tracked files
+  local all_files
+  mapfile -t all_files < <(git ls-files)
+
+  local classified_json="[]"
+  local unclassified_json="[]"
+
+  # Track which stack hint files we found
+  local stack_hints_files=()
+
+  for f in "${all_files[@]}"; do
+    local t
+    t=$(classify_file "$f")
+
+    # Collect stack hint files
+    case "$f" in
+      Program.cs|Startup.cs|*.csproj|*.sln) stack_hints_files+=("$f") ;;
+      vite.config.*) stack_hints_files+=("$f") ;;
+      package.json) stack_hints_files+=("$f") ;;
+    esac
+
+    if [[ -n "$t" && "$t" != "conventions" && "$t" != "architecture" ]]; then
+      classified_json=$(echo "$classified_json" | jq \
+        --arg file "$f" --arg type "$t" \
+        '. + [{"file": $file, "type": $type, "confidence": "high"}]')
+    elif [[ -z "$t" ]]; then
+      unclassified_json=$(echo "$unclassified_json" | jq \
+        --arg file "$f" \
+        '. + [{"file": $file}]')
+    fi
+  done
+
+  # Infer stack from hints
+  local inferred_runtime="unknown"
+  local inferred_frontend="unknown"
+  for f in "${stack_hints_files[@]}"; do
+    case "$f" in
+      Program.cs|Startup.cs|*.csproj|*.sln) inferred_runtime="dotnet-9" ;;
+      vite.config.ts|vite.config.js) inferred_frontend="sveltekit" ;;
+    esac
+  done
+
+  # Build stack_hints_files JSON array
+  local hints_json="[]"
+  for f in "${stack_hints_files[@]}"; do
+    hints_json=$(echo "$hints_json" | jq --arg f "$f" '. + [$f]')
+  done
+
+  jq -n \
+    --argjson schema_version 1 \
+    --arg head_sha "$head_sha" \
+    --arg branch "$branch" \
+    --arg branch_canonicalized "$branch_canon" \
+    --argjson classified "$classified_json" \
+    --argjson unclassified "$unclassified_json" \
+    --argjson hints_files "$hints_json" \
+    --arg runtime "$inferred_runtime" \
+    --arg frontend "$inferred_frontend" \
+    '{
+      schema_version: $schema_version,
+      head_sha: $head_sha,
+      branch: $branch,
+      branch_canonicalized: $branch_canonicalized,
+      classified: $classified,
+      unclassified: $unclassified,
+      stack_hints: {
+        files_found: $hints_files,
+        inferred: { runtime: $runtime, frontend: $frontend }
+      }
+    }'
+  exit 0
+}
+
+# ─── dispatch ─────────────────────────────────────────────────────────────────
+
+case "${1:-}" in
+  --version) cmd_version ;;
+  --scan)    cmd_scan    ;;
+  --write-memory) echo "[DevFlow] --write-memory: not yet implemented" >&2; exit 1 ;;
+  --reset)        echo "[DevFlow] --reset: not yet implemented" >&2; exit 1 ;;
+  *) echo "[DevFlow] Unknown command: ${1:-}. Use --scan, --write-memory, --reset, or --version." >&2; exit 1 ;;
+esac
