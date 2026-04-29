@@ -52,7 +52,7 @@ Added to `.devflow/active/` alongside existing files:
   "schema_version": 1,
   "nodes": [
     {
-      "id": "entity:Comment",
+      "id": "entity:Entities.Comment",
       "name": "Comment",
       "type": "entity",
       "file": "Entities/Comment.cs",
@@ -68,7 +68,7 @@ Added to `.devflow/active/` alongside existing files:
 
 | Field | Type | Description |
 |---|---|---|
-| `id` | string | Unique identifier — format `<type>:<name>` (e.g. `entity:Comment`, `service:CommentService`). Guarantees no collision across types. |
+| `id` | string | Unique identifier — format `<type>:<path-slug>` where `path-slug` is the file's relative path from repo root with `/` replaced by `.` and the extension stripped. Example: `Entities/Comment.cs` → `entity:Entities.Comment`. This guarantees uniqueness even when two files share the same class name in different directories (`Entities/Comment.cs` and `Entities/Archived/Comment.cs` produce `entity:Entities.Comment` and `entity:Entities.Archived.Comment`). The `name` field retains the bare display name (e.g. `Comment`) for human-readable output. |
 | `name` | string | Display name |
 | `type` | string | Built-in or custom node type |
 | `file` | string | Relative path from repo root |
@@ -100,22 +100,22 @@ Defined per-project in `config.json`:
   "schema_version": 1,
   "edges": [
     {
-      "from": "entity:Comment",
-      "to": "entity:User",
+      "from": "entity:Entities.Comment",
+      "to": "entity:Entities.User",
       "rel": "depends_on",
       "intent": "author ownership",
       "last_seen_sha": "a3f9c12"
     },
     {
-      "from": "service:CommentService",
-      "to": "entity:Comment",
+      "from": "service:Services.CommentService",
+      "to": "entity:Entities.Comment",
       "rel": "uses",
       "intent": "CRUD — create, soft-delete, list by story",
       "last_seen_sha": "a3f9c12"
     },
     {
-      "from": "entity:Comment",
-      "to": "entity:Story",
+      "from": "entity:Entities.Comment",
+      "to": "entity:Entities.Story",
       "rel": "depends_on",
       "intent": "parent context",
       "last_seen_sha": "a3f9c12"
@@ -199,7 +199,17 @@ Edges inherit stale from either endpoint — if either `from` or `to` is stale, 
 **AI Call — intent inference**
 One Claude call receives: all new/updated nodes without `intent` + all new edges without `intent` + the diff. Returns intent strings only. Never re-infers structure. Also classifies any nodes unresolved by heuristics in Step 1.
 
-Intent re-inference is triggered when a node's `file` changes by more than 30 lines in the diff — the existing `intent` string is cleared and the node is included in the next AI batch. This threshold is not configurable; it is a fixed heuristic. Nodes with cleared intent have their `confidence` set to `"ai"` until re-inferred.
+Intent re-inference is triggered when a node's `file` changes by more than 30 lines in the diff — the existing `intent` string is cleared and the node is included in the next AI batch. Nodes with cleared intent have their `confidence` set to `"ai"` until re-inferred.
+
+**Why 30 lines and why not configurable:** A change under 30 lines is treated as an additive or refinement edit — the node's fundamental purpose is unlikely to have shifted. A change over 30 lines signals a structural rewrite where the old intent may no longer be accurate. The threshold is fixed (not in `config.json`) because making it configurable invites mistuning: set it too low and every formatting pass triggers AI calls; set it too high and stale intent persists across major rewrites. 30 lines is calibrated against typical refactor diffs in well-structured codebases.
+
+If auto-generated files trigger unwanted re-inference (e.g. migration scaffolds, protobuf output, generated clients), add those paths to `no_intent_recheck` in `config.json`:
+
+```json
+"no_intent_recheck": ["**/Migrations/*.cs", "**/Generated/**"]
+```
+
+Files matching `no_intent_recheck` patterns never trigger intent re-inference regardless of diff size. Their `intent` is only re-inferred if it is absent entirely.
 
 **Step 4 — Pattern learning**
 AI-classified nodes write their inferred path pattern back to `config.json classifiers`. Same file type → heuristics next time.
@@ -421,3 +431,30 @@ Invoked automatically via a `post-commit` git hook installed by `df-init`. Not i
 `edge_rel_types`: closed set of valid `rel` values. `builtin` is fixed; `custom` is project-defined. Any unrecognised value on write is rejected with a warning.
 
 `graph_limits.max_nodes` / `graph_limits.max_edges`: when exceeded, `df-sync` prunes nodes that are `stale: true` AND whose `last_seen_sha` is more than `prune_min_age_commits` commits behind HEAD AND have no inbound edges. Their edges are deleted with them. `prune_min_age_commits` defaults to 90 — this intentional gap between `edge_staleness_threshold` (30) and the prune floor (90) gives stale nodes time to be re-discovered before deletion. If pruning doesn't bring the count below the limit, `df-sync` logs a warning and continues — it never silently drops non-stale nodes.
+
+---
+
+## 11. Schema Version Migration
+
+`nodes.json` and `edges.json` both carry `schema_version`. When `df-init` or `df-sync` runs and finds a version lower than the current binary's expected version, it runs the migration before any other operation.
+
+### Migration strategy
+
+Each version bump ships a migration script at `~/.devflow/bin/migrations/v<N>-to-v<N+1>.sh`. `df-init` and `df-sync` detect the version gap, run migrations in order, and update `schema_version` in all affected files after each step.
+
+**v1 policy (current):** No migration needed — v1 is the initial version. If `schema_version` is absent (pre-versioned install), treat as v0 and rebuild `nodes.json` and `edges.json` from scratch via `df-init --reset` on the current branch only. `prd-archive/` and other branch directories are not touched.
+
+### Safe direction
+
+Migrations never delete `intent` strings. If a structural change requires rebuilding the graph, intent strings from the old format are carried forward into the new node records where the node ID can be matched. Unmatched intents are written to `migration_orphans.json` for manual review — they are not silently discarded.
+
+### Version mismatch detection
+
+```bash
+EXPECTED_VERSION=1
+ACTUAL_VERSION=$(jq '.schema_version // 0' .devflow/active/nodes.json)
+if [ "$ACTUAL_VERSION" -lt "$EXPECTED_VERSION" ]; then
+  echo "[DevFlow] Schema version mismatch (found v$ACTUAL_VERSION, expected v$EXPECTED_VERSION). Running migration."
+  # run migration scripts in order from v$ACTUAL_VERSION to v$EXPECTED_VERSION
+fi
+```
