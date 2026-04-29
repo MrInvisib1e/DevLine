@@ -179,11 +179,19 @@ install_hook() {
   local devflow_header="# DevFlow managed"
 
   if [[ -f "$hook_file" ]]; then
-    if grep -q "^${devflow_header}" "$hook_file" 2>/dev/null; then
-      # Overwrite the whole file — it's ours
+    local first_line
+    first_line=$(head -1 "$hook_file" 2>/dev/null || echo "")
+    if [[ "$first_line" == "$devflow_header" ]]; then
+      # File is entirely DevFlow-managed (header is first line) — overwrite
       printf '#!/usr/bin/env bash\n%s\n\n%s\n' "$devflow_header" "$hook_body" > "$hook_file"
+    elif grep -q "$devflow_header" "$hook_file" 2>/dev/null; then
+      # File has DevFlow appended to existing content — keep original, replace DevFlow section
+      local sed_pattern="^${devflow_header}"
+      local original_content
+      original_content=$(sed "/${sed_pattern}/,\$d" "$hook_file")
+      printf '%s\n\n%s\n%s\n' "$original_content" "$devflow_header" "$hook_body" > "$hook_file"
     else
-      # Append to existing non-DevFlow hook
+      # No DevFlow header — append
       printf '\n%s\n%s\n' "$devflow_header" "$hook_body" >> "$hook_file"
     fi
   else

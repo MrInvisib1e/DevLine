@@ -340,6 +340,28 @@ _build_patch() {
   [ "$count" -eq 1 ]
 }
 
+@test "hook idempotency: existing non-DevFlow hook content preserved after second --write-memory" {
+  # Write a pre-existing hook without DevFlow header
+  mkdir -p "$REPO/.git/hooks"
+  printf '#!/bin/bash\necho "existing hook"\n' > "$REPO/.git/hooks/post-commit"
+  chmod +x "$REPO/.git/hooks/post-commit"
+
+  local patch
+  patch=$(_build_patch "$REPO")
+  bash -c "cd '$REPO' && printf '%s' '$patch' | '$DF_INIT' --write-memory"
+  # Run twice — this is where the old code failed
+  bash -c "cd '$REPO' && printf '%s' '$patch' | '$DF_INIT' --write-memory"
+
+  # Original content must survive even after second run
+  grep -q "existing hook" "$REPO/.git/hooks/post-commit"
+  # DevFlow call must still be present
+  grep -q "df-sync" "$REPO/.git/hooks/post-commit"
+  # Only one DevFlow managed header
+  local count
+  count=$(grep -c "DevFlow managed" "$REPO/.git/hooks/post-commit")
+  [ "$count" -eq 1 ]
+}
+
 # ─── Error paths ──────────────────────────────────────────────────────────────
 
 @test "df-init exits 1 and prints error when not in git repo" {
