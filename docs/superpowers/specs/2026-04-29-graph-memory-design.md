@@ -348,14 +348,14 @@ After all conflicts are resolved, `df-resolve` deletes `graph_conflicts.json` (o
 
 ### Unresolved conflicts block skills
 
-If a skill starts and detects `graph_conflicts.json` or `memory_conflicts.json`, it prints:
+If a skill starts and detects `graph_conflicts.json` or `memory_conflicts.json`, it prints the following and exits immediately — before any memory read, diff analysis, or code change:
 
 ```
 [DevFlow] Unresolved graph conflicts detected. Run df-resolve before proceeding.
 Affected nodes: entity:Comment, service:CommentService
 ```
 
-The skill halts — it does not proceed with contested intent. Running `df-resolve` unblocks it.
+This is a **global hard halt** — not a per-node skip. The skill does not proceed at all while any node's `intent` is contested. Running `df-resolve` and resolving all conflicts unblocks it. The rationale: partial reasoning on a graph with contested nodes produces misleading output — it is safer to block entirely than to silently reason on uncertain data.
 
 ---
 
