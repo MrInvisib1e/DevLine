@@ -485,7 +485,7 @@ Phase 6 — Memory Sync           df-sync final pass, delete slices.json, keep p
 
 ---
 
-## 16. Agent Dispatch Mechanism
+## 15. Agent Dispatch Mechanism
 
 All per-slice agents (Implementation, Test, Slice Review), the Integration Test Agent, and the Final Review Agent are dispatched as **Claude Code subagents** via the Claude Agent SDK `Task` tool. Each is a separate, isolated session with no shared conversation history.
 
