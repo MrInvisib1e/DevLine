@@ -316,6 +316,49 @@ If no node is found:
 
 ---
 
+## 8a. df-resolve — Conflict Resolution
+
+`df-resolve` is the interactive tool for resolving conflicts recorded in `memory_conflicts.json` and `graph_conflicts.json`. Developers never edit these JSON files by hand.
+
+### Usage
+
+```bash
+df-resolve              # resolve all pending conflicts one by one
+df-resolve --file graph  # resolve only graph_conflicts.json conflicts
+df-resolve --file memory # resolve only memory_conflicts.json conflicts
+```
+
+### Interaction flow
+
+For each conflicted item, `df-resolve` prints:
+
+```
+[DevFlow] Conflict: entity:Comment — intent
+  Branch A: "Soft-deletable — hide, never purge"
+  Branch B: "Hard-deleted after 90 days"
+
+Accept [A], accept [B], or write a new value [W]? (A/B/W):
+```
+
+On selection:
+- `A` or `B`: writes the chosen value to `nodes.json` for that node, removes the entry from `graph_conflicts.json`.
+- `W`: opens the system `$EDITOR` with the A value pre-filled. On save, the written value is used.
+
+After all conflicts are resolved, `df-resolve` deletes `graph_conflicts.json` (or `memory_conflicts.json`), runs `df-sync` to regenerate `memory.md`, and prints `[DevFlow] All conflicts resolved. Memory updated to <HEAD-sha>.`
+
+### Unresolved conflicts block skills
+
+If a skill starts and detects `graph_conflicts.json` or `memory_conflicts.json`, it prints:
+
+```
+[DevFlow] Unresolved graph conflicts detected. Run df-resolve before proceeding.
+Affected nodes: entity:Comment, service:CommentService
+```
+
+The skill halts — it does not proceed with contested intent. Running `df-resolve` unblocks it.
+
+---
+
 ## 9. Integration with Existing Skills
 
 ### feature skill
@@ -328,7 +371,22 @@ Before forming a hypothesis, runs `df-explain` on the failing endpoint or entity
 After reading the diff, runs `df-explain` on every changed node. Flags any inbound nodes that weren't touched by the PR but whose behaviour may have changed.
 
 ### mem-sync skill
-Triggers `df-sync` after every commit. Verifies that `nodes.json`, `edges.json`, and `memory.json` are all consistent with the new HEAD SHA before marking sync complete. Fails loudly if any file's `last_synced` does not match HEAD — never silently out of sync.
+
+Invoked automatically via a `post-commit` git hook installed by `df-init`. Not intended for manual invocation (though it is safe to call manually).
+
+**Flow:**
+
+```
+1. Read config.json — get last_synced SHA
+2. If last_synced == HEAD: print "[DevFlow] Memory already current." and exit 0
+3. Run df-sync (diff HEAD vs last_synced, classify, patch nodes.json/edges.json/memory.json, regenerate memory.md)
+4. Verify all three files (nodes.json, edges.json, memory.json) have last_seen_sha / last_synced == HEAD
+5. If any file is out of sync: print "[DevFlow] Sync failed — <file> is still at <sha>. Re-running df-sync." and repeat step 3 once
+6. If still out of sync after retry: print "[DevFlow] mem-sync failed. Run df-sync manually and check for lock or write errors." and exit 1
+7. On success: print "[DevFlow] Memory synced to <HEAD sha>." and exit 0
+```
+
+**Failure contract:** `mem-sync` never silently exits with stale memory. It either succeeds (exit 0, memory == HEAD) or fails loudly (exit 1, developer must resolve). The `feature` and `fix` skills check this on startup via the `last_synced` divergence check — if `mem-sync` failed, they will re-run `df-sync` themselves before proceeding.
 
 ---
 
@@ -346,7 +404,8 @@ Triggers `df-sync` after every commit. Verifies that `nodes.json`, `edges.json`,
   },
   "graph_limits": {
     "max_nodes": 2000,
-    "max_edges": 10000
+    "max_edges": 10000,
+    "prune_min_age_commits": 90
   },
   "classifiers": {
     "entities":    ["**/Entities/*.cs", "**/Models/*.cs"],
@@ -361,4 +420,4 @@ Triggers `df-sync` after every commit. Verifies that `nodes.json`, `edges.json`,
 
 `edge_rel_types`: closed set of valid `rel` values. `builtin` is fixed; `custom` is project-defined. Any unrecognised value on write is rejected with a warning.
 
-`graph_limits.max_nodes` / `graph_limits.max_edges`: when exceeded, `df-sync` prunes nodes that are stale AND last seen more than 90 commits ago AND have no inbound edges. Their edges are deleted with them. If pruning doesn't bring the count below the limit, `df-sync` logs a warning and continues — it never silently drops non-stale nodes.
+`graph_limits.max_nodes` / `graph_limits.max_edges`: when exceeded, `df-sync` prunes nodes that are `stale: true` AND whose `last_seen_sha` is more than `prune_min_age_commits` commits behind HEAD AND have no inbound edges. Their edges are deleted with them. `prune_min_age_commits` defaults to 90 — this intentional gap between `edge_staleness_threshold` (30) and the prune floor (90) gives stale nodes time to be re-discovered before deletion. If pruning doesn't bring the count below the limit, `df-sync` logs a warning and continues — it never silently drops non-stale nodes.

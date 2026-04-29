@@ -42,6 +42,7 @@ Six bash scripts handle all mechanical operations. Installed once globally.
   df-workspace   # manage workspace registry (add/remove/list/read)
   df-explain     # given a file path or symbol, print which memory sections describe it
   df-export      # dump current memory as a CLAUDE.md-compatible markdown block
+  df-resolve     # interactive conflict resolution for memory_conflicts.json and graph_conflicts.json
 ```
 
 Scripts output structured text. Skills read that output and reason on top of it. The AI never manually parses git.
