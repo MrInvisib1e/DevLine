@@ -383,12 +383,47 @@ df-sync --branch-switch'
   exit 0
 }
 
+# ─── --reset ──────────────────────────────────────────────────────────────────
+
+cmd_reset() {
+  check_prereqs
+
+  local branch
+  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+  local branch_canon
+  branch_canon=$(canonicalize_branch "$branch")
+
+  local devflow_dir=".devflow"
+  local branch_dir="${devflow_dir}/branches/${branch_canon}"
+  local snapshots_dir="${devflow_dir}/snapshots"
+
+  if [[ ! -d "$branch_dir" ]]; then
+    err "No .devflow/branches/${branch_canon}/ found. Nothing to reset."
+    exit 0
+  fi
+
+  # Snapshot current branch files before wipe
+  local timestamp
+  timestamp=$(date +%Y%m%d%H%M%S)
+  local snapshot_dir="${snapshots_dir}/${timestamp}"
+  mkdir -p "$snapshot_dir"
+  cp -r "${branch_dir}/." "$snapshot_dir/"
+
+  # Wipe current branch directory only
+  rm -rf "$branch_dir"
+
+  echo "[DevFlow] Reset complete. Memory rebuilt from scratch for branch ${branch}."
+  echo "[DevFlow] Snapshot saved to ${snapshot_dir}"
+  echo "[DevFlow] Run df-init --write-memory to reinitialize."
+  exit 0
+}
+
 # ─── dispatch ─────────────────────────────────────────────────────────────────
 
 case "${1:-}" in
   --version) cmd_version ;;
   --scan)    cmd_scan    ;;
   --write-memory) cmd_write_memory ;;
-  --reset)        echo "[DevFlow] --reset: not yet implemented" >&2; exit 1 ;;
+  --reset) cmd_reset ;;
   *) echo "[DevFlow] Unknown command: ${1:-}. Use --scan, --write-memory, --reset, or --version." >&2; exit 1 ;;
 esac
