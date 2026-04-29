@@ -1,0 +1,64 @@
+{
+  "call1": [
+    {
+      "file": "Entities/Comment.cs",
+      "type": "entity",
+      "confidence": "ai",
+      "intent": "Soft-deletable content unit attached to a story",
+      "edges": [
+        { "to_file": "Services/CommentService.cs", "rel": "uses", "intent": "owned by service" }
+      ]
+    },
+    {
+      "file": "Services/CommentService.cs",
+      "type": "service",
+      "confidence": "ai",
+      "intent": "Owns all comment mutations",
+      "edges": []
+    },
+    {
+      "file": "Contracts/CommentCreatedEvent.cs",
+      "type": "contract",
+      "confidence": "ai",
+      "intent": "Event emitted when a new comment is created",
+      "edges": []
+    },
+    {
+      "file": "src/routes/+page.svelte",
+      "type": "route",
+      "confidence": "ai",
+      "intent": "Home page route",
+      "edges": []
+    },
+    {
+      "file": "src/lib/utils/slug.ts",
+      "type": "unclassified",
+      "confidence": "ai",
+      "intent": "URL slug utility",
+      "edges": []
+    }
+  ],
+  "call2": {
+    "stack": {
+      "runtime": "dotnet-9",
+      "frontend": "sveltekit",
+      "test_cmd": "dotnet test",
+      "key_dependencies": ["SvelteKit", "ASP.NET Core"]
+    },
+    "architecture": {
+      "layers": ["api", "services", "entities"],
+      "folder_structure": {
+        "Entities": "domain models",
+        "Services": "business logic",
+        "Contracts": "events and messages",
+        "src/routes": "SvelteKit pages"
+      },
+      "patterns": ["vertical slices", "event-driven"]
+    },
+    "conventions": {
+      "naming": ["PascalCase for C# classes", "kebab-case for Svelte routes"],
+      "anti_patterns": [],
+      "file_structure": ["one class per file", "events in Contracts/"]
+    }
+  }
+}
