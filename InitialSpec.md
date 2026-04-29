@@ -353,7 +353,17 @@ No slice planning starts until the developer types an explicit approval. `prd.md
 
 Runs after PRD approval. Shorter than before — the PRD already captured intent and constraints. This phase focuses on **technical decisions** the PRD doesn't answer.
 
-The AI reads `memory.md` and asks targeted questions about implementation approach, using the same style as Phase 0: one question at a time, critical and direct, with best-practice suggestions on every question.
+**Cross-workspace context loading:** Before asking domain questions, the `feature` skill checks `config.json` for a `workspace` name. If one exists, it scans the approved `prd.md` for any mentions of sibling service names registered in the workspace. For each named sibling service, it runs:
+
+```bash
+df-workspace read <workspace> <service> memory.md
+```
+
+The returned `memory.md` is injected into the domain interrogation context alongside the local `memory.md`. This gives the AI cross-service graph context — contracts, routes, entities — without requiring the developer to describe sibling APIs manually.
+
+If the PRD mentions no sibling services, cross-workspace loading is skipped entirely. It is never automatic for all services in the workspace — only for services explicitly referenced in the approved PRD.
+
+The AI reads `memory.md` (and any loaded sibling `memory.md` files) and asks targeted questions about implementation approach, using the same style as Phase 0: one question at a time, critical and direct, with best-practice suggestions on every question.
 
 Typical questions:
 
