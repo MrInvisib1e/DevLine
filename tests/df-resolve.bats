@@ -102,6 +102,8 @@ teardown() {
   [ "$status" -eq 0 ]
   run jq -r '.nodes[] | select(.id=="entity:Entities.Comment") | .confidence' "$REPO/.devflow/branches/main/nodes.json"
   [ "$output" = "ai" ]
+  run jq -r '.nodes[] | select(.id=="entity:Entities.Comment") | .intent // "null"' "$REPO/.devflow/branches/main/nodes.json"
+  [ "$output" = "null" ]
 }
 
 @test "--rewrite-intent: unknown node ID exits 1 with message" {

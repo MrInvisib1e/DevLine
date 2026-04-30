@@ -8,7 +8,6 @@ setup() {
   (cd "$REPO" && git init -b main && git config user.email "t@t.com" && git config user.name "T" && git commit --allow-empty -m "initial" --quiet)
   mkdir -p "$REPO/.devflow/branches/main"
   # Fake memory.md for sibling repos
-  mkdir -p "$REPO/.devflow/branches/main"
   echo "# memory" > "$REPO/.devflow/branches/main/memory.md"
   ln -sfn "branches/main" "$REPO/.devflow/active"
 
