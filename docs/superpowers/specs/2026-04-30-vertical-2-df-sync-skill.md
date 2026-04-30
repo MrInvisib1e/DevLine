@@ -125,11 +125,10 @@ Group into batches of 20. For each batch, call Claude API:
 
 **Token optimisation — what to send per file:**
 
-Instead of raw file content, send extracted signatures:
-- **C# files:** extract class declaration + method signatures (return type, name, parameters) via regex — strip method bodies, field values, and comments. Typical reduction: 80% fewer tokens.
-- **TypeScript/Svelte files:** extract `export` declarations, function signatures, and interface/type definitions — strip function bodies. Typical reduction: 60-70% fewer tokens.
-- **Re-inferred nodes (changed >30 lines):** send `git diff <last_synced>..HEAD -- <path>` instead of signatures. The diff is smaller and captures exactly what changed.
-- **Fallback:** if signature extraction yields <5 lines (e.g., single-function file), send full file content capped at 30 lines.
+Instead of raw file content, send a compact representation:
+- **New nodes:** send the first 20 lines of the file (`head -20`). For most languages, the top of a file contains the module/class declaration and public interface — enough for intent inference. Language-agnostic.
+- **Re-inferred nodes (changed >30 lines):** send `git diff <last_synced>..HEAD -- <path>` instead of file content. The diff is smaller and captures exactly what changed.
+- **Fallback:** if the file is ≤20 lines, send the full file.
 
 **Prompt (per batch):**
 ```
@@ -372,7 +371,7 @@ A 4-step AI skill agents invoke before reading graph memory.
 | `--force` from scratch | nodes.json populated from all repo files |
 | large repo cap | >200 changed files → capped at 200, warning logged, priority ordering applied |
 | `--force --all` bypasses cap | All files processed regardless of count |
-| signature extraction | C# file sent as signatures only, not full content |
+| first-20-lines extraction | new node sends first 20 lines, not full content |
 | diff-based re-inference | Changed node (>30 lines) sends diff, not full file |
 | comment-only skip | File changed only in comments/whitespace → no re-inference |
 | tiered memory.md | >30 nodes → summary section + full-graph section with marker |
