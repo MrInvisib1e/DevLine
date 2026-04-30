@@ -1,4 +1,272 @@
 #!/usr/bin/env bash
+# shellcheck enable=require-variable-braces
 set -euo pipefail
-echo "[DevFlow] df-explain stub — not yet implemented" >&2
-exit 1
+
+# ─── constants ────────────────────────────────────────────────────────────────
+
+DEVFLOW_VERSION="0.1.0"
+MAX_DEPTH=5
+
+# ─── helpers ──────────────────────────────────────────────────────────────────
+
+err() { echo "[DevFlow] $*" >&2; }
+
+check_prereqs() {
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    err "Not a git repo."
+    exit 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    err "Missing prerequisite: jq"
+    exit 1
+  fi
+}
+
+# ─── node resolution ──────────────────────────────────────────────────────────
+
+resolve_node() {
+  local input="${1}"
+  local nodes_file="${2}"
+
+  # 1. Exact match on id (case-sensitive)
+  local match
+  match=$(jq -r --arg q "${input}" '.nodes[] | select(.id == $q) | .id' "${nodes_file}")
+  if [[ -n "${match}" ]]; then
+    echo "${match}"
+    return 0
+  fi
+
+  # 2. Case-insensitive exact match on id
+  local lower_input
+  lower_input=$(echo "${input}" | tr '[:upper:]' '[:lower:]')
+  match=$(jq -r --arg q "${lower_input}" '.nodes[] | select((.id | ascii_downcase) == $q) | .id' "${nodes_file}" | head -1)
+  if [[ -n "${match}" ]]; then
+    echo "${match}"
+    return 0
+  fi
+
+  # 3. Substring match (case-insensitive) on id
+  local matches
+  matches=$(jq -r --arg q "${lower_input}" '.nodes[] | select((.id | ascii_downcase) | contains($q)) | .id' "${nodes_file}")
+  local count
+  if [[ -z "${matches}" ]]; then
+    count=0
+  else
+    count=$(echo "${matches}" | grep -c . 2>/dev/null || echo 0)
+  fi
+  if [[ "${count}" -eq 1 ]]; then
+    echo "${matches}"
+    return 0
+  elif [[ "${count}" -gt 1 ]]; then
+    err "Multiple matches for \"${input}\":"
+    local i=1
+    while IFS= read -r m; do
+      echo "  ${i}. ${m}" >&2
+      ((i++)) || true
+    done <<< "${matches}"
+    echo "Specify a full node name or use df-explain --node <exact-name>." >&2
+    return 1
+  fi
+
+  # 4. File path match on file field
+  match=$(jq -r --arg q "${input}" '.nodes[] | select(.file == $q) | .id' "${nodes_file}" | head -1)
+  if [[ -n "${match}" ]]; then
+    echo "${match}"
+    return 0
+  fi
+
+  # 5. No match
+  err "No memory found for \"${input}\". It may need a df-sync or a classifier entry."
+  return 1
+}
+
+# ─── BFS traversal ────────────────────────────────────────────────────────────
+
+# Print a single node line: "  → NodeName [type] — intent [STALE marker]"
+# direction: "out" (→) or "in" (←)
+format_neighbour_line() {
+  local node_json="${1}" direction="${2}"
+  local id type intent stale arrow
+  id=$(printf '%s' "${node_json}" | jq -r '.id')
+  type=$(printf '%s' "${node_json}" | jq -r '.type')
+  intent=$(printf '%s' "${node_json}" | jq -r '.intent // "(no intent recorded)"')
+  stale=$(printf '%s' "${node_json}" | jq -r '.stale // false')
+  arrow="→"
+  [[ "${direction}" == "in" ]] && arrow="←"
+
+  local stale_marker=""
+  if [[ "${stale}" == "deleted" ]]; then
+    stale_marker=" [STALE: deleted]"
+  elif [[ "${stale}" == "aged" ]]; then
+    stale_marker=" [STALE: aged]"
+  fi
+
+  # Extract short name from id (last component after last dot or colon)
+  local short_name="${id##*[.:]}"
+
+  printf '  %s %s [%s] — %s%s\n' "${arrow}" "${short_name}" "${type}" "${intent}" "${stale_marker}"
+}
+
+# ─── report output ────────────────────────────────────────────────────────────
+
+print_node_report() {
+  local node_id="${1}" depth="${2}" nodes_file="${3}" edges_file="${4}"
+
+  # Get the node JSON
+  local node_json
+  node_json=$(jq -r --arg id "${node_id}" '.nodes[] | select(.id == $id)' "${nodes_file}")
+  if [[ -z "${node_json}" ]]; then
+    err "Node \"${node_id}\" not found in nodes.json."
+    return 1
+  fi
+
+  local ntype nfile nintent nconfidence nstale
+  ntype=$(printf '%s' "${node_json}" | jq -r '.type')
+  nfile=$(printf '%s' "${node_json}" | jq -r '.file // "(unknown file)"')
+  nintent=$(printf '%s' "${node_json}" | jq -r '.intent // "(no intent recorded)"')
+  nconfidence=$(printf '%s' "${node_json}" | jq -r '.confidence')
+  nstale=$(printf '%s' "${node_json}" | jq -r '.stale // false')
+
+  local short_name="${node_id##*[.:]}"
+
+  local stale_header=""
+  if [[ "${nstale}" == "deleted" ]]; then
+    stale_header=" [STALE: deleted]"
+  elif [[ "${nstale}" == "aged" ]]; then
+    stale_header=" [STALE: aged]"
+  fi
+
+  # Node card
+  printf '[%s] %s — %s%s\n' "${short_name}" "${ntype}" "${nintent}" "${stale_header}"
+  printf 'file: %s\n' "${nfile}"
+  printf 'confidence: %s\n' "${nconfidence}"
+
+  if [[ "${depth}" -eq 0 ]]; then
+    return 0
+  fi
+
+  # Collect direct outbound neighbours
+  local out_ids
+  mapfile -t out_ids < <(jq -r --arg id "${node_id}" '.edges[] | select(.from == $id) | .to' "${edges_file}" 2>/dev/null | sort -u || true)
+
+  # Collect direct inbound neighbours
+  local in_ids
+  mapfile -t in_ids < <(jq -r --arg id "${node_id}" '.edges[] | select(.to == $id) | .from' "${edges_file}" 2>/dev/null | sort -u || true)
+
+  # DEPENDS ON section
+  if [[ "${#out_ids[@]}" -gt 0 ]]; then
+    printf '\nDEPENDS ON (%d)\n' "${#out_ids[@]}"
+    for nid in "${out_ids[@]}"; do
+      local neighbour_json
+      neighbour_json=$(jq -r --arg id "${nid}" '.nodes[] | select(.id == $id)' "${nodes_file}")
+      if [[ -n "${neighbour_json}" ]]; then
+        format_neighbour_line "${neighbour_json}" "out"
+      fi
+    done
+  fi
+
+  # DEPENDED ON BY section
+  if [[ "${#in_ids[@]}" -gt 0 ]]; then
+    printf '\nDEPENDED ON BY (%d) — changing %s affects these:\n' "${#in_ids[@]}" "${short_name}"
+    for nid in "${in_ids[@]}"; do
+      local neighbour_json
+      neighbour_json=$(jq -r --arg id "${nid}" '.nodes[] | select(.id == $id)' "${nodes_file}")
+      if [[ -n "${neighbour_json}" ]]; then
+        format_neighbour_line "${neighbour_json}" "in"
+      fi
+    done
+
+    # Summary line
+    local names=()
+    for nid in "${in_ids[@]}"; do
+      local sname="${nid##*[.:]}"
+      names+=("${sname}")
+    done
+    local joined
+    joined=$(IFS=', '; echo "${names[*]}")
+    printf '\n[DevFlow] %d node(s) depend on %s.\n' "${#in_ids[@]}" "${short_name}"
+    printf 'Changing its shape will affect %s.\n' "${joined}"
+  fi
+}
+
+# ─── commands ─────────────────────────────────────────────────────────────────
+
+cmd_version() {
+  echo "DevFlow ${DEVFLOW_VERSION}"
+  exit 0
+}
+
+cmd_explain() {
+  local input="${1}" depth="${2}" exact_node="${3}"
+
+  check_prereqs
+
+  # Clamp depth
+  if [[ "${depth}" -gt "${MAX_DEPTH}" ]]; then depth=${MAX_DEPTH}; fi
+
+  # CI mode: no .devflow/ → exit 0 silently
+  local devflow_dir
+  devflow_dir="$(git rev-parse --show-toplevel)/.devflow"
+  if [[ ! -d "${devflow_dir}" ]]; then
+    exit 0
+  fi
+
+  local nodes_file="${devflow_dir}/active/nodes.json"
+  local edges_file="${devflow_dir}/active/edges.json"
+
+  if [[ ! -f "${nodes_file}" ]] || [[ ! -f "${edges_file}" ]]; then
+    err "Memory not initialised. Run df-init first."
+    exit 1
+  fi
+
+  local node_id
+  if [[ -n "${exact_node}" ]]; then
+    # --node flag: exact lookup
+    node_id=$(jq -r --arg id "${exact_node}" '.nodes[] | select(.id == $id) | .id' "${nodes_file}")
+    if [[ -z "${node_id}" ]]; then
+      err "Node \"${exact_node}\" not found in nodes.json."
+      exit 1
+    fi
+  else
+    node_id=$(resolve_node "${input}" "${nodes_file}") || exit 1
+  fi
+
+  print_node_report "${node_id}" "${depth}" "${nodes_file}" "${edges_file}"
+}
+
+# ─── dispatch ─────────────────────────────────────────────────────────────────
+
+INPUT=""
+DEPTH=1
+EXACT_NODE=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version) cmd_version ;;
+    --depth)
+      shift
+      DEPTH="${1:-1}"
+      shift
+      ;;
+    --node)
+      shift
+      EXACT_NODE="${1:-}"
+      shift
+      ;;
+    -*)
+      err "Unknown flag: $1"
+      exit 1
+      ;;
+    *)
+      INPUT="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "${INPUT}" && -z "${EXACT_NODE}" ]]; then
+  err "Usage: df-explain <name-or-path> [--depth N] [--node <exact-id>]"
+  exit 1
+fi
+
+cmd_explain "${INPUT}" "${DEPTH}" "${EXACT_NODE}"

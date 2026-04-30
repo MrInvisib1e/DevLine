@@ -50,7 +50,7 @@ teardown() {
 
 @test "substring multiple matches: lists options and exits 1" {
   # 'comment' matches entity:Entities.Comment AND service:Services.CommentService AND contract:Contracts.CommentCreatedEvent
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' 'comment' 2>&1 || true"
+  run bash -c "cd '$REPO' && '$DF_EXPLAIN' 'comment' 2>&1"
   # With multiple matches it should list them and exit 1
   [ "$status" -eq 1 ]
   [[ "$output" =~ "Multiple matches" ]]
@@ -63,7 +63,7 @@ teardown() {
 }
 
 @test "no match: prints no-memory message and exits 1" {
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' 'NonExistent' 2>&1 || true"
+  run bash -c "cd '$REPO' && '$DF_EXPLAIN' 'NonExistent' 2>&1"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "No memory found" ]]
 }
@@ -75,7 +75,7 @@ teardown() {
 }
 
 @test "--node not found: prints error and exits 1" {
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' --node 'entity:Nonexistent' 2>&1 || true"
+  run bash -c "cd '$REPO' && '$DF_EXPLAIN' --node 'entity:Nonexistent' 2>&1"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "not found" ]]
 }
@@ -129,7 +129,7 @@ teardown() {
 
 @test "not a git repo: exits 1 with message" {
   tmpdir="$(mktemp -d)"
-  run bash -c "cd '$tmpdir' && '$DF_EXPLAIN' Comment 2>&1 || true"
+  run bash -c "cd '$tmpdir' && '$DF_EXPLAIN' Comment 2>&1"
   rm -rf "$tmpdir"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "Not a git repo" ]]
@@ -146,7 +146,7 @@ teardown() {
 
 @test "nodes.json missing: exits 1 with not-initialised message" {
   rm "$REPO/.devflow/branches/main/nodes.json"
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' Comment 2>&1 || true"
+  run bash -c "cd '$REPO' && '$DF_EXPLAIN' Comment 2>&1"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "not initialised" ]] || [[ "$output" =~ "not initialized" ]]
 }
