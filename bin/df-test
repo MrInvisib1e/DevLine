@@ -1,4 +1,172 @@
 #!/usr/bin/env bash
 set -euo pipefail
-echo "[DevFlow] df-test stub — not yet implemented" >&2
-exit 1
+
+# ─── constants ────────────────────────────────────────────────────────────────
+
+DEVFLOW_VERSION="0.1.0"
+
+# ─── helpers ──────────────────────────────────────────────────────────────────
+
+err() { echo "[DevFlow] $*" >&2; }
+
+check_prereqs() {
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    err "Not a git repo."
+    exit 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    err "Missing prerequisite: jq"
+    exit 1
+  fi
+}
+
+atomic_write() {
+  local file="$1" content="$2"
+  local tmp="${file}.tmp"
+  if [[ -e "$file" && ! -w "$file" ]]; then return 1; fi
+  printf '%s' "$content" > "$tmp"
+  sync 2>/dev/null || true
+  mv "$tmp" "$file"
+}
+
+# ─── commands ─────────────────────────────────────────────────────────────────
+
+cmd_version() {
+  echo "DevFlow $DEVFLOW_VERSION"
+  exit 0
+}
+
+cmd_list() {
+  check_prereqs
+
+  local devflow_dir
+  devflow_dir="$(git rev-parse --show-toplevel)/.devflow"
+  local slices_file="${devflow_dir}/active/slices.json"
+
+  if [[ ! -f "$slices_file" ]]; then
+    err "No slice plan found. Run the feature skill to create one."
+    exit 1
+  fi
+
+  local feature approved_at
+  feature=$(jq -r '.feature' "$slices_file")
+  approved_at=$(jq -r '.approved_at' "$slices_file")
+
+  echo "Slice plan: $feature (approved $approved_at)"
+
+  while IFS= read -r slice; do
+    local id name status
+    id=$(printf '%s' "$slice" | jq -r '.id')
+    name=$(printf '%s' "$slice" | jq -r '.name')
+    status=$(printf '%s' "$slice" | jq -r '.status')
+    printf '  [%-11s] %d  %s\n' "$status" "$id" "$name"
+  done < <(jq -c '.slices[]' "$slices_file")
+}
+
+cmd_run() {
+  local slice_id="$1"
+
+  check_prereqs
+
+  local devflow_dir
+  devflow_dir="$(git rev-parse --show-toplevel)/.devflow"
+  local slices_file="${devflow_dir}/active/slices.json"
+
+  # Check for DEVFLOW_TEST_CMD override first — can run even without slices.json
+  if [[ -n "${DEVFLOW_TEST_CMD:-}" ]]; then
+    echo "[DevFlow] Running slice ${slice_id} (DEVFLOW_TEST_CMD override)"
+    set +e
+    # shellcheck disable=SC2294
+    ( eval "$DEVFLOW_TEST_CMD" )
+    local exit_code=$?
+    set -e
+    if [[ "$exit_code" -eq 0 ]]; then
+      echo "[DevFlow] PASS"
+    else
+      echo "[DevFlow] FAIL (exit ${exit_code})"
+    fi
+    # Update slices.json if it exists
+    if [[ -f "$slices_file" ]]; then
+      local new_status="failed"
+      [[ "$exit_code" -eq 0 ]] && new_status="done"
+      local updated
+      updated=$(jq --argjson id "$slice_id" --arg s "$new_status" \
+        '.slices = [.slices[] | if .id == $id then .status = $s else . end]' \
+        "$slices_file")
+      atomic_write "$slices_file" "$updated"
+    fi
+    exit "$exit_code"
+  fi
+
+  # No env override — require slices.json
+  if [[ ! -f "$slices_file" ]]; then
+    if [[ ! -d "$devflow_dir" ]]; then
+      err "No test command found. Set DEVFLOW_TEST_CMD or run df-init."
+    else
+      err "No slice plan found. Run the feature skill to create one."
+    fi
+    exit 1
+  fi
+
+  # Find the slice
+  local slice_json
+  slice_json=$(jq -r --argjson id "$slice_id" '.slices[] | select(.id == $id)' "$slices_file")
+  if [[ -z "$slice_json" ]]; then
+    err "Slice ${slice_id} not found in slices.json."
+    exit 1
+  fi
+
+  local slice_name test_cmd
+  slice_name=$(printf '%s' "$slice_json" | jq -r '.name')
+  test_cmd=$(printf '%s' "$slice_json" | jq -r '.test_cmd // empty')
+
+  if [[ -z "$test_cmd" ]]; then
+    err "Slice ${slice_id} has no test_cmd defined."
+    exit 1
+  fi
+
+  echo "[DevFlow] Running slice ${slice_id}: ${slice_name}"
+
+  set +e
+  # shellcheck disable=SC2294
+  ( eval "$test_cmd" )
+  local exit_code=$?
+  set -e
+
+  local new_status="failed"
+  if [[ "$exit_code" -eq 0 ]]; then
+    echo "[DevFlow] PASS"
+    new_status="done"
+  else
+    echo "[DevFlow] FAIL (exit ${exit_code})"
+  fi
+
+  # Write status back atomically
+  local updated
+  updated=$(jq --argjson id "$slice_id" --arg s "$new_status" \
+    '.slices = [.slices[] | if .id == $id then .status = $s else . end]' \
+    "$slices_file")
+  atomic_write "$slices_file" "$updated"
+
+  exit "$exit_code"
+}
+
+# ─── dispatch ─────────────────────────────────────────────────────────────────
+
+case "${1:-}" in
+  --version) cmd_version ;;
+  --list)    cmd_list ;;
+  ''|-*)
+    err "Usage: df-test <slice-id> | --list | --version"
+    exit 1
+    ;;
+  *)
+    SLICE_ID="$1"
+    # Validate it's a number
+    if ! [[ "$SLICE_ID" =~ ^[0-9]+$ ]]; then
+      err "Slice ID must be a positive integer. Got: ${SLICE_ID}"
+      exit 1
+    fi
+    cmd_run "$SLICE_ID"
+    ;;
+esac

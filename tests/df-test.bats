@@ -36,7 +36,7 @@ teardown() {
 
 @test "happy path FAIL: runs test_cmd, prints FAIL, exits non-zero" {
   # Slice 2 has test_cmd: "exit 1" which exits 1
-  run bash -c "cd '$REPO' && '$DF_TEST' 2 2>&1 || true"
+  run bash -c "cd '$REPO' && '$DF_TEST' 2 2>&1"
   [ "$status" -ne 0 ]
   [[ "$output" =~ "FAIL" ]]
 }
@@ -78,28 +78,28 @@ teardown() {
 # ─── error paths ───────────────────────────────────────────────────────────────
 
 @test "slice not found: exits 1 with message" {
-  run bash -c "cd '$REPO' && '$DF_TEST' 999 2>&1 || true"
+  run bash -c "cd '$REPO' && '$DF_TEST' 999 2>&1"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "not found" ]]
 }
 
 @test "no test_cmd: exits 1 with message" {
   # Slice 3 has test_cmd: null
-  run bash -c "cd '$REPO' && '$DF_TEST' 3 2>&1 || true"
+  run bash -c "cd '$REPO' && '$DF_TEST' 3 2>&1"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "no test_cmd" ]] || [[ "$output" =~ "No test" ]]
 }
 
 @test "no slices.json and no DEVFLOW_TEST_CMD: exits 1 with message" {
   rm "$REPO/.devflow/branches/main/slices.json"
-  run bash -c "cd '$REPO' && '$DF_TEST' 1 2>&1 || true"
+  run bash -c "cd '$REPO' && '$DF_TEST' 1 2>&1"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "No slice plan" ]] || [[ "$output" =~ "slice plan" ]]
 }
 
 @test "not a git repo: exits 1 with message" {
   tmpdir="$(mktemp -d)"
-  run bash -c "cd '$tmpdir' && '$DF_TEST' 1 2>&1 || true"
+  run bash -c "cd '$tmpdir' && '$DF_TEST' 1 2>&1"
   rm -rf "$tmpdir"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "Not a git repo" ]]
