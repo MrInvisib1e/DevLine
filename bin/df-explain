@@ -80,7 +80,7 @@ resolve_node() {
   return 1
 }
 
-# ─── BFS traversal ────────────────────────────────────────────────────────────
+# ─── neighbour traversal ────────────────────────────────────────────────────────────
 
 # Print a single node line: "  → NodeName [type] — intent [STALE marker]"
 # direction: "out" (→) or "in" (←)
@@ -145,6 +145,9 @@ print_node_report() {
     return 0
   fi
 
+  # Any depth >= 1 shows direct neighbours only (multi-hop BFS not implemented;
+  # consistent with test suite expectations and --depth hard cap at MAX_DEPTH).
+
   # Collect direct outbound neighbours
   local out_ids
   mapfile -t out_ids < <(jq -r --arg id "${node_id}" '.edges[] | select(.from == $id) | .to' "${edges_file}" 2>/dev/null | sort -u || true)
@@ -183,7 +186,8 @@ print_node_report() {
       names+=("${sname}")
     done
     local joined
-    joined=$(IFS=', '; echo "${names[*]}")
+    printf -v joined '%s, ' "${names[@]}"
+    joined="${joined%, }"
     printf '\n[DevFlow] %d node(s) depend on %s.\n' "${#in_ids[@]}" "${short_name}"
     printf 'Changing its shape will affect %s.\n' "${joined}"
   fi
@@ -246,12 +250,12 @@ while [[ $# -gt 0 ]]; do
     --depth)
       shift
       DEPTH="${1:-1}"
-      shift
+      [[ $# -gt 0 ]] && shift
       ;;
     --node)
       shift
       EXACT_NODE="${1:-}"
-      shift
+      [[ $# -gt 0 ]] && shift
       ;;
     -*)
       err "Unknown flag: $1"
