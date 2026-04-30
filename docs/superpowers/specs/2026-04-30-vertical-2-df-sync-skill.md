@@ -119,8 +119,17 @@ Collect files needing intent inference:
 - New nodes (not in existing `nodes.json`)
 - Nodes whose file changed by >30 lines (`git diff --stat <last_synced>..HEAD -- <path>`)
 - Exclude paths matching any pattern in `no_intent_recheck` config list. `no_intent_recheck` is an array of glob patterns in `config.json` (e.g., `["**/migrations/**", "**/*.generated.cs"]`) identifying files whose intent should never be re-inferred (generated files, migrations, etc.).
+- Skip re-inference if diff contains only whitespace/comment/test-assertion changes (detected by checking that every changed line matches `^\s*(//|/\*|\*|#|assert|expect|should)`)
 
 Group into batches of 20. For each batch, call Claude API:
+
+**Token optimisation — what to send per file:**
+
+Instead of raw file content, send extracted signatures:
+- **C# files:** extract class declaration + method signatures (return type, name, parameters) via regex — strip method bodies, field values, and comments. Typical reduction: 80% fewer tokens.
+- **TypeScript/Svelte files:** extract `export` declarations, function signatures, and interface/type definitions — strip function bodies. Typical reduction: 60-70% fewer tokens.
+- **Re-inferred nodes (changed >30 lines):** send `git diff <last_synced>..HEAD -- <path>` instead of signatures. The diff is smaller and captures exactly what changed.
+- **Fallback:** if signature extraction yields <5 lines (e.g., single-function file), send full file content capped at 30 lines.
 
 **Prompt (per batch):**
 ```
@@ -130,13 +139,15 @@ For each file, return a JSON array where each element has:
 - "path": the file path
 - "intent": one sentence describing what this unit does
 - "confidence": "ai"
-- "edges": array of {to_file, rel, intent} for semantic relationships
+- "edges": array of {to_file, rel} for semantic relationships (omit edge intent — keep response compact)
 
 rel values: depends_on, uses, persisted_in, implements, emits, handles
 
 Files:
-[{path, type, content (first 50 lines)}, ...]
+[{path, type, signatures_or_diff}, ...]
 ```
+
+Edge `intent` field is omitted from the AI prompt to reduce response size. Edges carry only structural meaning (`rel`); intent lives on nodes.
 
 **Response handling:**
 - Parse JSON array
@@ -162,7 +173,10 @@ Files:
 ### Step 7: Finalize
 
 1. `prune_graph`: if `nodes.json` count > `graph_limits.max_nodes` → remove oldest stale nodes (by `last_seen` SHA) until under limit. Also remove their associated edges.
-2. `render_memory_md`: regenerate `.devflow/branches/<canon>/memory.md` (same format as df-init)
+2. `render_memory_md`: regenerate `.devflow/branches/<canon>/memory.md` — **tiered format:**
+   - **Summary section** (always included): stack info + top 30 nodes by priority (routes first, then entities, then services, then contracts). Each node = one line: `<type> <id>: <intent>`. This is what AI skills read by default.
+   - **Full graph section** (appended after a `<!-- full-graph -->` marker): all remaining nodes in the same compact format. Skills that need complete graph context read past the marker or read `nodes.json` directly.
+   - If total node count ≤ 30: no split — full graph is the summary.
 3. Atomic write `config.json` with `dirty: false` and `last_synced: <HEAD SHA>`
 4. Release lock
 
@@ -358,6 +372,10 @@ A 4-step AI skill agents invoke before reading graph memory.
 | `--force` from scratch | nodes.json populated from all repo files |
 | large repo cap | >200 changed files → capped at 200, warning logged, priority ordering applied |
 | `--force --all` bypasses cap | All files processed regardless of count |
+| signature extraction | C# file sent as signatures only, not full content |
+| diff-based re-inference | Changed node (>30 lines) sends diff, not full file |
+| comment-only skip | File changed only in comments/whitespace → no re-inference |
+| tiered memory.md | >30 nodes → summary section + full-graph section with marker |
 | not a git repo | Exit 1 with correct message |
 
 ---
