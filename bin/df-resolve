@@ -1,4 +1,204 @@
 #!/usr/bin/env bash
 set -euo pipefail
-echo "[DevFlow] df-resolve stub — not yet implemented" >&2
-exit 1
+
+# ─── constants ────────────────────────────────────────────────────────────────
+
+DEVFLOW_VERSION="0.1.0"
+
+# ─── helpers ──────────────────────────────────────────────────────────────────
+
+err() { echo "[DevFlow] $*" >&2; }
+
+check_prereqs() {
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    err "Not a git repo."
+    exit 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    err "Missing prerequisite: jq"
+    exit 1
+  fi
+}
+
+atomic_write() {
+  local file="$1" content="$2"
+  local tmp="${file}.tmp"
+  if [[ -e "$file" && ! -w "$file" ]]; then
+    err "Cannot write to $file: permission denied"
+    return 1
+  fi
+  printf '%s' "$content" > "$tmp"
+  sync 2>/dev/null || true
+  mv "$tmp" "$file"
+}
+
+devflow_active() {
+  local root
+  root="$(git rev-parse --show-toplevel)"
+  echo "${root}/.devflow/active"
+}
+
+# ─── commands ─────────────────────────────────────────────────────────────────
+
+cmd_version() {
+  echo "DevFlow $DEVFLOW_VERSION"
+  exit 0
+}
+
+cmd_list() {
+  check_prereqs
+  local active
+  active="$(devflow_active)"
+  local conflicts_file="${active}/graph_conflicts.json"
+
+  if [[ ! -f "$conflicts_file" ]]; then
+    echo "[DevFlow] No conflicts to resolve."
+    exit 0
+  fi
+
+  local count
+  count=$(jq '.conflicts | length' "$conflicts_file")
+
+  if [[ "$count" -eq 0 ]]; then
+    echo "[DevFlow] No conflicts to resolve."
+    exit 0
+  fi
+
+  echo "[DevFlow] ${count} unresolved conflict(s):"
+  jq -r '.conflicts[] |
+    "  \(.node_id)  [\(.field)]\n    A: \(.branch_a.branch) — \(.branch_a.value)\n    B: \(.branch_b.branch) — \(.branch_b.value)"
+  ' "$conflicts_file"
+}
+
+cmd_accept() {
+  local choice="$1" node_id="$2"
+  check_prereqs
+
+  # Normalise choice to lowercase using tr (macOS bash 3.2 compatibility)
+  choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
+
+  local active
+  active="$(devflow_active)"
+  local conflicts_file="${active}/graph_conflicts.json"
+  local nodes_file="${active}/nodes.json"
+
+  if [[ ! -f "$conflicts_file" ]]; then
+    err "Node \"${node_id}\" not found in conflicts."
+    exit 1
+  fi
+
+  # Verify conflict exists
+  local conflict_count
+  conflict_count=$(jq --arg id "$node_id" '[.conflicts[] | select(.node_id == $id)] | length' "$conflicts_file")
+  if [[ "$conflict_count" -eq 0 ]]; then
+    err "Node \"${node_id}\" not found in conflicts."
+    exit 1
+  fi
+
+  # Verify node exists in nodes.json
+  local node_count
+  node_count=$(jq --arg id "$node_id" '[.nodes[] | select(.id == $id)] | length' "$nodes_file")
+  if [[ "$node_count" -eq 0 ]]; then
+    err "Node \"${node_id}\" not found in nodes.json."
+    exit 1
+  fi
+
+  # Get the winning value
+  local winning_value
+  if [[ "$choice" == "a" ]]; then
+    winning_value=$(jq -r --arg id "$node_id" '.conflicts[] | select(.node_id == $id) | .branch_a.value' "$conflicts_file")
+  else
+    winning_value=$(jq -r --arg id "$node_id" '.conflicts[] | select(.node_id == $id) | .branch_b.value' "$conflicts_file")
+  fi
+
+  # Update nodes.json: set intent and confidence=manual
+  local updated_nodes
+  updated_nodes=$(jq --arg id "$node_id" --arg intent "$winning_value" \
+    '(.nodes[] | select(.id == $id)) |= (. + {intent: $intent, confidence: "manual"})' \
+    "$nodes_file")
+  atomic_write "$nodes_file" "$updated_nodes"
+
+  # Remove conflict from graph_conflicts.json
+  local updated_conflicts
+  updated_conflicts=$(jq --arg id "$node_id" \
+    'del(.conflicts[] | select(.node_id == $id))' \
+    "$conflicts_file")
+
+  local remaining
+  remaining=$(echo "$updated_conflicts" | jq '.conflicts | length')
+
+  if [[ "$remaining" -eq 0 ]]; then
+    rm "$conflicts_file"
+    echo "[DevFlow] Resolved ${node_id} -> choice ${choice}. All conflicts cleared."
+  else
+    atomic_write "$conflicts_file" "$updated_conflicts"
+    echo "[DevFlow] Resolved ${node_id} -> choice ${choice}. ${remaining} conflict(s) remaining."
+  fi
+}
+
+cmd_rewrite_intent() {
+  local node_id="$1" new_intent="$2"
+  check_prereqs
+
+  local active
+  active="$(devflow_active)"
+  local nodes_file="${active}/nodes.json"
+
+  # Verify node exists
+  local node_count
+  node_count=$(jq --arg id "$node_id" '[.nodes[] | select(.id == $id)] | length' "$nodes_file")
+  if [[ "$node_count" -eq 0 ]]; then
+    err "Node \"${node_id}\" not found."
+    exit 1
+  fi
+
+  local updated_nodes
+  if [[ "$new_intent" == "--auto" ]]; then
+    # Revert to AI-managed: set intent=null, confidence=ai
+    updated_nodes=$(jq --arg id "$node_id" \
+      '(.nodes[] | select(.id == $id)) |= (. + {intent: null, confidence: "ai"})' \
+      "$nodes_file")
+    atomic_write "$nodes_file" "$updated_nodes"
+    echo "[DevFlow] Node ${node_id} reverted to AI-managed intent."
+  else
+    # Set intent to provided value, confidence=manual
+    updated_nodes=$(jq --arg id "$node_id" --arg intent "$new_intent" \
+      '(.nodes[] | select(.id == $id)) |= (. + {intent: $intent, confidence: "manual"})' \
+      "$nodes_file")
+    atomic_write "$nodes_file" "$updated_nodes"
+    echo "[DevFlow] Node ${node_id} intent updated. confidence: manual."
+  fi
+}
+
+# ─── dispatch ─────────────────────────────────────────────────────────────────
+
+case "${1:-}" in
+  --version)
+    cmd_version
+    ;;
+  --list)
+    cmd_list
+    ;;
+  --accept)
+    if [[ $# -lt 3 ]]; then
+      err "Usage: df-resolve --accept <a|b> <node-id>"
+      exit 1
+    fi
+    cmd_accept "$2" "$3"
+    ;;
+  --rewrite-intent)
+    if [[ $# -lt 3 ]]; then
+      err "Usage: df-resolve --rewrite-intent <node-id> <new-intent|--auto>"
+      exit 1
+    fi
+    cmd_rewrite_intent "$2" "$3"
+    ;;
+  '')
+    err "Usage: df-resolve <--list|--accept|--rewrite-intent> [args] | --version"
+    exit 1
+    ;;
+  *)
+    err "Unknown subcommand: $1"
+    exit 1
+    ;;
+esac
