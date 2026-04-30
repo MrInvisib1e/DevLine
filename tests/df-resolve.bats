@@ -83,6 +83,12 @@ teardown() {
   [[ "$output" =~ "not found" ]]
 }
 
+@test "accept: invalid choice exits 1 with message" {
+  run bash -c "cd '$REPO' && '$DF_RESOLVE' --accept z 'entity:Entities.Comment' 2>&1"
+  [ "$status" -eq 1 ]
+  [[ "$output" =~ "Invalid choice" ]]
+}
+
 # ─── --rewrite-intent ─────────────────────────────────────────────────────────
 
 @test "--rewrite-intent: overwrites intent and sets confidence to manual" {

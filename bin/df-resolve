@@ -77,6 +77,11 @@ cmd_accept() {
   # Normalise choice to lowercase using tr (macOS bash 3.2 compatibility)
   choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
 
+  if [[ "$choice" != "a" && "$choice" != "b" ]]; then
+    err "Invalid choice \"${choice}\": must be 'a' or 'b'."
+    exit 1
+  fi
+
   local active
   active="$(devflow_active)"
   local conflicts_file="${active}/graph_conflicts.json"
