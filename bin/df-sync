@@ -468,28 +468,12 @@ prune_graph() {
     return
   fi
 
-  # Remove stale nodes with no inbound edges
+  # Sort: keep non-stale first, stale nodes after (deterministic order by file)
+  # Then take first max_nodes, dropping excess stale nodes
   local pruned_nodes
-  pruned_nodes=$(jq -n \
-    --argjson nodes "$nodes_json_str" \
-    --argjson edges "$edges_json_str" \
+  pruned_nodes=$(printf '%s' "$nodes_json_str" | jq \
     --argjson max "$max_nodes" \
-    '
-    ($edges | map(.to) | unique) as $has_inbound |
-    $nodes | sort_by(.last_seen) |
-    reduce .[] as $n (
-      {keep: [], pruned: 0};
-      if (.keep | length) >= $max then
-        .
-      elif ($n.stale == "deleted" or $n.stale == "aged") and
-           ($has_inbound | any(. == $n.id) | not) then
-        . + {pruned: (.pruned + 1)}
-      else
-        . + {keep: (.keep + [$n])}
-      end
-    ) |
-    .keep
-    ')
+    'sort_by(if (.stale == "deleted" or .stale == "aged") then 1 else 0 end, .file) | .[0:$max]')
 
   local pruned_ids
   pruned_ids=$(jq -n \
@@ -507,23 +491,11 @@ prune_graph() {
   jq -n --argjson nodes "$pruned_nodes" --argjson edges "$pruned_edges" '[$nodes, $edges]'
 }
 
-# ─── cmd_sync ────────────────────────────────────────────────────────────────
+# ─── _do_sync (lock-free sync body) ─────────────────────────────────────────
 
-cmd_sync() {
-  local force=false
-  local all_flag=false
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --force) force=true; shift ;;
-      --all)   all_flag=true; shift ;;
-      *) shift ;;
-    esac
-  done
-
-  check_prereqs
-  [[ ! -d "$DEVFLOW_DIR" ]] && exit 0  # CI mode
-
-  acquire_lock
+_do_sync() {
+  local force="$1"
+  local all_flag="$2"
 
   local branch
   branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
@@ -551,7 +523,7 @@ cmd_sync() {
   # Get changed files (exclude .devflow/ internal files)
   local changed_files=()
   local deleted_files=""
-  if $force || [[ -z "$last_synced" ]]; then
+  if [[ "$force" = "true" ]] || [[ -z "$last_synced" ]]; then
     mapfile -t changed_files < <(git ls-files | grep -v '^\.devflow/')
     deleted_files=""
   else
@@ -570,7 +542,7 @@ cmd_sync() {
 
   # Apply large-repo cap (unless --all)
   local total_files="${#changed_files[@]}"
-  if ! $all_flag && [[ "$total_files" -gt "$max_files" ]]; then
+  if [[ "$all_flag" != "true" ]] && [[ "$total_files" -gt "$max_files" ]]; then
     err "Large sync: ${total_files} files changed, capped at ${max_files} — run df-sync --force --all to process all files"
     local prioritized=()
     for ptype in route entity service contract; do
@@ -583,7 +555,7 @@ cmd_sync() {
     for f in "${changed_files[@]}"; do
       local t
       t=$(classify_file "$f" "$classifiers")
-      if [[ "$t" != "route" && "$t" != "entity" && "$t" != "service" && "$t" != "contract" ]]; then
+      if [[ "$t" != "route" && "$t" != "entity" && "$t" != "service" && "$t" != "contract" && "$t" != "architecture" && "$t" != "conventions" ]]; then
         prioritized+=("$f")
       fi
     done
@@ -707,6 +679,26 @@ cmd_sync() {
   atomic_write "$config_file" "$cfg_content"
 }
 
+# ─── cmd_sync ────────────────────────────────────────────────────────────────
+
+cmd_sync() {
+  local force=false
+  local all_flag=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force) force=true; shift ;;
+      --all)   all_flag=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  check_prereqs
+  [[ ! -d "$DEVFLOW_DIR" ]] && exit 0  # CI mode
+
+  acquire_lock
+  _do_sync "$force" "$all_flag"
+}
+
 # ─── cmd_branch_switch ───────────────────────────────────────────────────────
 
 cmd_branch_switch() {
@@ -814,7 +806,7 @@ cmd_branch_switch() {
   done
 
   # Run sync on new branch
-  cmd_sync
+  _do_sync "false" "false"
 }
 
 # ─── cmd_version ─────────────────────────────────────────────────────────────
