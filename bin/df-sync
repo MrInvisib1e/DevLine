@@ -1,9 +1,836 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ─── constants ────────────────────────────────────────────────────────────────
+
 DEVFLOW_VERSION="0.1.0"
+DEVFLOW_DIR=".devflow"
+LOCK_FILE="${DEVFLOW_DIR}/sync.lock"
+
+# ─── helpers ──────────────────────────────────────────────────────────────────
 
 err() { echo "[DevFlow] $*" >&2; }
 
-echo "[DevFlow] df-sync stub — not yet implemented" >&2
-exit 1
+check_prereqs() {
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    err "Not a git repo. Run df-sync inside a git repository."
+    exit 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    err "Missing prerequisite: jq >= 1.6 is required. Install with: brew install jq"
+    exit 1
+  fi
+}
+
+canonicalize_branch() {
+  echo "${1//\//__}"
+}
+
+# atomic_write <file> <content>
+atomic_write() {
+  local file="$1"
+  local content="$2"
+  local tmp="${file}.tmp"
+  if [[ -e "$file" && ! -w "$file" ]]; then
+    err "Cannot write to $file: permission denied"
+    return 1
+  fi
+  printf '%s' "$content" > "$tmp"
+  sync 2>/dev/null || true
+  mv "$tmp" "$file"
+}
+
+# ─── lock ─────────────────────────────────────────────────────────────────────
+
+acquire_lock() {
+  mkdir -p "$DEVFLOW_DIR"
+  if command -v flock >/dev/null 2>&1; then
+    exec {lock_fd}>"$LOCK_FILE"
+    if ! flock -n "$lock_fd" 2>/dev/null; then
+      echo "[DevFlow] sync already running — skipping"
+      exit 0
+    fi
+    trap 'flock -u "$lock_fd" 2>/dev/null || true; rm -f "$LOCK_FILE"' EXIT
+  else
+    # PID-file fallback
+    if [[ -f "$LOCK_FILE" ]]; then
+      local old_pid
+      old_pid=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
+      if [[ -n "$old_pid" ]]; then
+        # If PID is running, definitely skip
+        if kill -0 "$old_pid" 2>/dev/null; then
+          echo "[DevFlow] sync already running — skipping"
+          exit 0
+        fi
+        # If PID doesn't exist but lock file is very recent (< 60s), treat as race condition
+        local lock_age=999
+        if command -v stat >/dev/null 2>&1; then
+          # macOS stat
+          lock_age=$(( $(date +%s) - $(stat -f %m "$LOCK_FILE" 2>/dev/null || echo 0) )) 2>/dev/null || lock_age=999
+        fi
+        if [[ "$lock_age" -lt 60 ]]; then
+          echo "[DevFlow] sync already running — skipping"
+          exit 0
+        fi
+        # Stale lock (old PID gone, file old) — clear and proceed
+      fi
+    fi
+    echo $$ > "$LOCK_FILE"
+    trap 'rm -f "$LOCK_FILE"' EXIT
+  fi
+}
+
+# ─── classifier ───────────────────────────────────────────────────────────────
+
+DEFAULT_CLASSIFIERS=(
+  "entity:*Entities/*.cs:*Models/*.cs:*Domain/*.cs:*Domain/*/*.cs"
+  "route:*Controller.cs:*Endpoint.cs:*pages/*.svelte:*pages/*/*.svelte:*routes/*.svelte:*routes/*/*.svelte:*routes/*.ts:*routes/*/*.ts"
+  "contract:*Contracts/*:*Events/*:*Messages/*"
+  "service:*Services/*.cs:*Handlers/*.cs"
+  "conventions:.editorconfig:*.globalconfig:.eslintrc*:*.prettierrc*"
+  "architecture:Program.cs:Startup.cs:appsettings*.json:vite.config.*"
+)
+
+classify_file() {
+  local file="$1"
+  local classifiers_json="${2:-}"
+  local type=""
+
+  # Try project classifiers from config.json first
+  if [[ -n "$classifiers_json" ]] && [[ "$classifiers_json" != "[]" ]] && [[ "$classifiers_json" != "null" ]]; then
+    local n
+    n=$(echo "$classifiers_json" | jq 'length')
+    local i=0
+    while [[ $i -lt $n ]]; do
+      local entry_type entry_pattern
+      entry_type=$(echo "$classifiers_json" | jq -r ".[$i].type")
+      entry_pattern=$(echo "$classifiers_json" | jq -r ".[$i].pattern")
+      # shellcheck disable=SC2254
+      case "$file" in
+        $entry_pattern) type="$entry_type"; break ;;
+      esac
+      ((i++)) || true
+    done
+  fi
+
+  # Fall back to DEFAULT_CLASSIFIERS
+  if [[ -z "$type" ]]; then
+    for entry in "${DEFAULT_CLASSIFIERS[@]}"; do
+      local entry_type="${entry%%:*}"
+      local patterns="${entry#*:}"
+      IFS=':' read -ra pats <<< "$patterns"
+      for pat in "${pats[@]}"; do
+        # shellcheck disable=SC2254
+        case "$file" in
+          $pat) type="$entry_type"; break 2 ;;
+        esac
+      done
+    done
+  fi
+
+  echo "$type"
+}
+
+# ─── node ID formula ──────────────────────────────────────────────────────────
+
+file_to_node_id() {
+  local file="$1"
+  local type="$2"
+  # Strip only the last extension, replace / with .
+  local base="${file%.*}"
+  local slug="${base//\//.}"
+  echo "${type}:${slug}"
+}
+
+# ─── static edges ─────────────────────────────────────────────────────────────
+
+static_edges() {
+  local file="$1"
+  local node_id="$2"
+  local edges_json="[]"
+
+  [[ -f "$file" ]] || { echo "[]"; return; }
+
+  local ext="${file##*.}"
+  case "$ext" in
+    ts|svelte)
+      while IFS= read -r line; do
+        # Match: import ... from './path' or '../path'
+        if [[ "$line" =~ from[[:space:]]+[\'\"] ]]; then
+          local quoted
+          quoted=$(echo "$line" | grep -oE "from '[^']+'" | sed "s/from '//;s/'$//" || true)
+          if [[ -z "$quoted" ]]; then
+            quoted=$(echo "$line" | grep -oE 'from "[^"]+"' | sed 's/from "//;s/"$//' || true)
+          fi
+          if [[ -n "$quoted" ]] && [[ "$quoted" =~ ^\. ]]; then
+            edges_json=$(echo "$edges_json" | jq \
+              --arg from "$node_id" \
+              --arg to_path "$quoted" \
+              --arg rel "uses" \
+              '. + [{"from": $from, "to_path": $to_path, "rel": $rel, "source": "static"}]')
+          fi
+        fi
+      done < "$file"
+      ;;
+    cs)
+      while IFS= read -r line; do
+        if [[ "$line" =~ ^using[[:space:]]+([A-Za-z][A-Za-z0-9._]*)\; ]]; then
+          local ns="${BASH_REMATCH[1]}"
+          edges_json=$(echo "$edges_json" | jq \
+            --arg from "$node_id" \
+            --arg to_path "$ns" \
+            --arg rel "uses" \
+            '. + [{"from": $from, "to_path": $to_path, "rel": $rel, "source": "static"}]')
+        fi
+      done < "$file"
+      ;;
+  esac
+
+  echo "$edges_json"
+}
+
+# ─── render memory.md ─────────────────────────────────────────────────────────
+
+render_memory_md() {
+  local branch_dir="$1"
+  local memory_json="${branch_dir}/memory.json"
+  local nodes_json_file="${branch_dir}/nodes.json"
+
+  local stack_runtime stack_frontend
+  stack_runtime=$(jq -r '.stack.runtime // "unknown"' "$memory_json" 2>/dev/null || echo "unknown")
+  stack_frontend=$(jq -r '.stack.frontend // "unknown"' "$memory_json" 2>/dev/null || echo "unknown")
+
+  printf '%s\n\n' '# DevFlow Memory'
+  printf '%s\n\n' '## Stack'
+  printf -- '- Runtime: %s\n' "$stack_runtime"
+  printf -- '- Frontend: %s\n\n' "$stack_frontend"
+  printf '%s\n\n' '## Graph'
+
+  local summary_count=0
+  local full_lines=()
+
+  for node_type in route entity service contract; do
+    while IFS= read -r node_line; do
+      [[ -z "$node_line" ]] && continue
+      local node_id node_intent node_stale stale_marker
+      node_id=$(printf '%s' "$node_line" | jq -r '.id')
+      node_intent=$(printf '%s' "$node_line" | jq -r '.intent // ""')
+      node_stale=$(printf '%s' "$node_line" | jq -r '.stale // false')
+      stale_marker=""
+      [[ "$node_stale" = "deleted" ]] && stale_marker=" [DELETED]"
+      [[ "$node_stale" = "aged" ]] && stale_marker=" [UNVERIFIED]"
+      local line="${node_id}${stale_marker}: ${node_intent}"
+      if [[ $summary_count -lt 30 ]]; then
+        printf '%s\n' "$line"
+        ((summary_count++)) || true
+      else
+        full_lines+=("$line")
+      fi
+    done < <(jq -c --arg t "$node_type" '.nodes[] | select(.type == $t)' "$nodes_json_file" 2>/dev/null || true)
+  done
+
+  # Any remaining types
+  while IFS= read -r node_line; do
+    [[ -z "$node_line" ]] && continue
+    local node_id node_intent node_stale stale_marker
+    node_id=$(printf '%s' "$node_line" | jq -r '.id')
+    node_intent=$(printf '%s' "$node_line" | jq -r '.intent // ""')
+    node_stale=$(printf '%s' "$node_line" | jq -r '.stale // false')
+    stale_marker=""
+    [[ "$node_stale" = "deleted" ]] && stale_marker=" [DELETED]"
+    [[ "$node_stale" = "aged" ]] && stale_marker=" [UNVERIFIED]"
+    local line="${node_id}${stale_marker}: ${node_intent}"
+    if [[ $summary_count -lt 30 ]]; then
+      printf '%s\n' "$line"
+      ((summary_count++)) || true
+    else
+      full_lines+=("$line")
+    fi
+  done < <(jq -c '.nodes[] | select(.type != "route" and .type != "entity" and .type != "service" and .type != "contract")' "$nodes_json_file" 2>/dev/null || true)
+
+  if [[ ${#full_lines[@]} -gt 0 ]]; then
+    printf '\n<!-- full-graph -->\n'
+    for fl in "${full_lines[@]}"; do
+      printf '%s\n' "$fl"
+    done
+  fi
+}
+
+# ─── AI batch ─────────────────────────────────────────────────────────────────
+
+ai_batch() {
+  local mock_file="${DEVFLOW_AI_MOCK_FILE:-}"
+
+  if [[ "${DEVFLOW_AI_MOCK:-}" = "1" ]] && [[ -n "$mock_file" ]] && [[ -f "$mock_file" ]]; then
+    jq '.batch' "$mock_file"
+    return 0
+  fi
+
+  # Real API call placeholder — emit empty array on no API key
+  err "Warning: DEVFLOW_AI_MOCK not set and no Claude API implementation yet — writing nodes without intent"
+  echo "[]"
+}
+
+# ─── patch nodes ──────────────────────────────────────────────────────────────
+
+patch_nodes() {
+  local existing_nodes_json="$1"  # JSON array of existing nodes (post-sweep)
+  local ai_results="$2"           # JSON array from ai_batch
+  local static_files="$3"         # JSON array of {path, type} for all processed files
+  local head_sha="$4"
+
+  local existing="$existing_nodes_json"
+
+  # Build new nodes from AI results + static file list
+  local updated
+  updated=$(jq -n \
+    --argjson existing "$existing" \
+    --argjson ai "$ai_results" \
+    --argjson static_files "$static_files" \
+    --arg sha "$head_sha" \
+    '
+    ($existing | map({(.id): .}) | add // {}) as $existing_map |
+
+    # Build map from AI results
+    ($ai | map(
+      . as $r |
+      ($r.path | gsub("\\.(?=[^.]*$)"; "") | gsub("/"; ".")) as $slug |
+      ($r.type // "unknown") as $t |
+      "\($t):\($slug)" as $id |
+      {path: $r.path, id: $id, type: $t, intent: ($r.intent // ""), confidence: ($r.confidence // "ai")}
+    ) | map({(.path): .}) | add // {}) as $ai_map |
+
+    # Process all static_files (ensure every processed file has a node)
+    ($static_files | map(
+      . as $sf |
+      ($sf.path | gsub("\\.(?=[^.]*$)"; "") | gsub("/"; ".")) as $slug |
+      ($sf.type) as $t |
+      "\($t):\($slug)" as $id |
+      (if ($existing_map[$id] // null) != null and ($existing_map[$id].confidence == "manual") then
+        $existing_map[$id]
+      elif ($ai_map[$sf.path] // null) != null then
+        {
+          id: $id,
+          name: ($sf.path | split("/") | last | gsub("\\..*$"; "")),
+          type: $t,
+          file: $sf.path,
+          intent: $ai_map[$sf.path].intent,
+          confidence: $ai_map[$sf.path].confidence,
+          last_seen: $sha
+        }
+      else
+        (if ($existing_map[$id] // null) != null then
+          ($existing_map[$id] | . + {last_seen: $sha})
+        else
+          {
+            id: $id,
+            name: ($sf.path | split("/") | last | gsub("\\..*$"; "")),
+            type: $t,
+            file: $sf.path,
+            intent: "",
+            confidence: "ai",
+            last_seen: $sha
+          }
+        end)
+      end)
+    )) as $new_nodes |
+
+    # Merge: keep existing nodes not in new set, add new nodes
+    ($existing | map(select(
+      . as $e |
+      ($new_nodes | map(select(.id == $e.id)) | length) == 0
+    ))) + $new_nodes
+    ')
+
+  echo "$updated"
+}
+
+# ─── patch edges ──────────────────────────────────────────────────────────────
+
+patch_edges() {
+  local edges_file="$1"
+  local static_edges_json="$2"   # array of {from, to_path, rel, source}
+  local ai_edges_json="$3"       # array of {from, to_path, rel}
+  local nodes_file="$4"          # path to nodes.json for ID resolution
+  local head_sha="$5"
+
+  local existing_edges="[]"
+  [[ -f "$edges_file" ]] && existing_edges=$(jq '.edges' "$edges_file")
+
+  # Resolve to_path to node id using nodes.json
+  local all_new_edges
+  all_new_edges=$(jq -n \
+    --argjson static_e "$static_edges_json" \
+    --argjson ai_e "$ai_edges_json" \
+    --slurpfile nodes_arr "$nodes_file" \
+    --arg sha "$head_sha" \
+    '
+    ($nodes_arr[0].nodes | map({(.file): .id}) | add // {}) as $file_to_id |
+    ($static_e + ($ai_e | map(. + {source: "ai"}))) |
+    map(
+      . as $e |
+      ($file_to_id[$e.to_path] // null) as $to_id |
+      if $to_id == null then empty
+      else
+        {from: $e.from, to: $to_id, rel: $e.rel, source: ($e.source // "ai"), last_seen: $sha}
+      end
+    ) |
+    group_by(.from + "|" + .to + "|" + .rel) |
+    map(sort_by(if .source == "static" then 0 else 1 end) | first)
+    ')
+
+  # Merge with existing (keep existing that are not in new set)
+  jq -n \
+    --argjson existing "$existing_edges" \
+    --argjson new_e "$all_new_edges" \
+    '($existing | map(select(
+      . as $ex |
+      ($new_e | map(select(.from == $ex.from and .to == $ex.to and .rel == $ex.rel)) | length) == 0
+    ))) + $new_e'
+}
+
+# ─── staleness sweep ──────────────────────────────────────────────────────────
+
+staleness_sweep() {
+  local nodes_json_str="$1"    # JSON string of nodes array
+  local edges_json_str="$2"    # JSON string of edges array
+  local deleted_files="$3"     # newline-separated list of deleted file paths
+  local head_sha="$4"
+  local threshold="$5"
+
+  # Hard stale: deleted files
+  local updated_nodes
+  updated_nodes=$(printf '%s' "$nodes_json_str" | jq \
+    --arg deleted "$deleted_files" \
+    '
+    ($deleted | split("\n") | map(select(length > 0))) as $del_list |
+    map(if (.file as $f | $del_list | any(. == $f)) then . + {stale: "deleted"} else . end)
+    ')
+
+  # Soft stale: count commits since last_seen for each node
+  local nodes_count
+  nodes_count=$(printf '%s' "$updated_nodes" | jq 'length')
+  local i=0
+  while [[ $i -lt $nodes_count ]]; do
+    local node_stale node_last_seen node_file
+    node_stale=$(printf '%s' "$updated_nodes" | jq -r ".[$i].stale // false")
+    if [[ "$node_stale" = "deleted" ]]; then
+      ((i++)) || true
+      continue
+    fi
+    node_last_seen=$(printf '%s' "$updated_nodes" | jq -r ".[$i].last_seen // \"\"")
+    node_file=$(printf '%s' "$updated_nodes" | jq -r ".[$i].file")
+    if [[ -n "$node_last_seen" && "$node_last_seen" != "null" ]]; then
+      local commit_count
+      commit_count=$(git log --oneline "${node_last_seen}..HEAD" -- "$node_file" 2>/dev/null | wc -l | tr -d ' ') || commit_count=0
+      commit_count="${commit_count:-0}"
+      if [[ "$commit_count" -ge "$threshold" ]]; then
+        updated_nodes=$(printf '%s' "$updated_nodes" | jq \
+          --argjson idx "$i" \
+          '.[$idx] |= . + {stale: "aged"}')
+      fi
+    fi
+    ((i++)) || true
+  done
+
+  # Edge staleness: inherit from endpoints
+  local updated_edges
+  updated_edges=$(jq -n \
+    --argjson edges "$edges_json_str" \
+    --argjson nodes "$updated_nodes" \
+    '
+    ($nodes | map({(.id): (.stale // false)}) | add // {}) as $stale_map |
+    $edges | map(
+      . as $e |
+      ($stale_map[$e.from] // false) as $from_stale |
+      ($stale_map[$e.to] // false) as $to_stale |
+      if $from_stale == "deleted" or $to_stale == "deleted" then . + {stale: "deleted"}
+      elif $from_stale == "aged" or $to_stale == "aged" then . + {stale: "aged"}
+      else .
+      end
+    )')
+
+  # Return as two-element JSON array: [nodes, edges]
+  jq -n --argjson nodes "$updated_nodes" --argjson edges "$updated_edges" '[$nodes, $edges]'
+}
+
+# ─── prune graph ──────────────────────────────────────────────────────────────
+
+prune_graph() {
+  local nodes_json_str="$1"
+  local edges_json_str="$2"
+  local max_nodes="$3"
+
+  local count
+  count=$(printf '%s' "$nodes_json_str" | jq 'length')
+  if [[ "$count" -le "$max_nodes" ]]; then
+    jq -n --argjson nodes "$nodes_json_str" --argjson edges "$edges_json_str" '[$nodes, $edges]'
+    return
+  fi
+
+  # Remove stale nodes with no inbound edges
+  local pruned_nodes
+  pruned_nodes=$(jq -n \
+    --argjson nodes "$nodes_json_str" \
+    --argjson edges "$edges_json_str" \
+    --argjson max "$max_nodes" \
+    '
+    ($edges | map(.to) | unique) as $has_inbound |
+    $nodes | sort_by(.last_seen) |
+    reduce .[] as $n (
+      {keep: [], pruned: 0};
+      if (.keep | length) >= $max then
+        .
+      elif ($n.stale == "deleted" or $n.stale == "aged") and
+           ($has_inbound | any(. == $n.id) | not) then
+        . + {pruned: (.pruned + 1)}
+      else
+        . + {keep: (.keep + [$n])}
+      end
+    ) |
+    .keep
+    ')
+
+  local pruned_ids
+  pruned_ids=$(jq -n \
+    --argjson all "$nodes_json_str" \
+    --argjson kept "$pruned_nodes" \
+    '($all | map(.id)) - ($kept | map(.id))')
+
+  local pruned_edges
+  pruned_edges=$(jq -n \
+    --argjson edges "$edges_json_str" \
+    --argjson dropped_ids "$pruned_ids" \
+    '$edges | map(select(.from as $f | $dropped_ids | any(. == $f) | not)) |
+              map(select(.to as $t | $dropped_ids | any(. == $t) | not))')
+
+  jq -n --argjson nodes "$pruned_nodes" --argjson edges "$pruned_edges" '[$nodes, $edges]'
+}
+
+# ─── cmd_sync ────────────────────────────────────────────────────────────────
+
+cmd_sync() {
+  local force=false
+  local all_flag=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force) force=true; shift ;;
+      --all)   all_flag=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  check_prereqs
+  [[ ! -d "$DEVFLOW_DIR" ]] && exit 0  # CI mode
+
+  acquire_lock
+
+  local branch
+  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+  local branch_canon
+  branch_canon=$(canonicalize_branch "$branch")
+  local branch_dir="${DEVFLOW_DIR}/branches/${branch_canon}"
+  local config_file="${DEVFLOW_DIR}/config.json"
+  local head_sha
+  head_sha=$(git rev-parse HEAD)
+
+  [[ ! -f "$config_file" ]] && exit 0  # CI mode: no config
+
+  # Read config
+  local last_synced classifiers max_files threshold
+  last_synced=$(jq -r '.last_synced // ""' "$config_file")
+  classifiers=$(jq -c '.classifiers // []' "$config_file")
+  max_files=$(jq -r '.graph_limits.max_files_per_sync // 200' "$config_file")
+  threshold=$(jq -r '.edge_staleness_threshold // 30' "$config_file")
+
+  # Set dirty:true
+  local cfg_content
+  cfg_content=$(jq '. + {dirty: true}' "$config_file")
+  atomic_write "$config_file" "$cfg_content"
+
+  # Get changed files (exclude .devflow/ internal files)
+  local changed_files=()
+  local deleted_files=""
+  if $force || [[ -z "$last_synced" ]]; then
+    mapfile -t changed_files < <(git ls-files | grep -v '^\.devflow/')
+    deleted_files=""
+  else
+    mapfile -t changed_files < <(git diff --name-only --diff-filter=ACMR "${last_synced}..HEAD" 2>/dev/null | grep -v '^\.devflow/' || true)
+    deleted_files=$(git diff --name-only --diff-filter=D "${last_synced}..HEAD" 2>/dev/null | grep -v '^\.devflow/' || true)
+  fi
+
+  # Apply large-repo cap (unless --all)
+  local total_files="${#changed_files[@]}"
+  if ! $all_flag && [[ "$total_files" -gt "$max_files" ]]; then
+    err "Large sync: ${total_files} files changed, capped at ${max_files} — run df-sync --force --all to process all files"
+    local prioritized=()
+    for ptype in route entity service contract; do
+      for f in "${changed_files[@]}"; do
+        local t
+        t=$(classify_file "$f" "$classifiers")
+        [[ "$t" = "$ptype" ]] && prioritized+=("$f")
+      done
+    done
+    for f in "${changed_files[@]}"; do
+      local t
+      t=$(classify_file "$f" "$classifiers")
+      if [[ "$t" != "route" && "$t" != "entity" && "$t" != "service" && "$t" != "contract" ]]; then
+        prioritized+=("$f")
+      fi
+    done
+    changed_files=("${prioritized[@]:0:$max_files}")
+  fi
+
+  # Load existing nodes/edges
+  local nodes_json edges_json
+  nodes_json=$(jq '.nodes // []' "${branch_dir}/nodes.json" 2>/dev/null || echo "[]")
+  edges_json=$(jq '.edges // []' "${branch_dir}/edges.json" 2>/dev/null || echo "[]")
+
+  # Per-file: classify + static edges
+  local all_static_edges="[]"
+  local static_files_json="[]"
+
+  for f in "${changed_files[@]}"; do
+    [[ -z "$f" ]] && continue
+    # Skip .devflow internal files (config, nodes, edges, symlinks)
+    [[ "$f" == .devflow/* ]] && continue
+    local ftype
+    ftype=$(classify_file "$f" "$classifiers")
+    [[ "$ftype" = "architecture" || "$ftype" = "conventions" ]] && continue
+    [[ -z "$ftype" ]] && ftype="unknown"
+
+    local node_id
+    node_id=$(file_to_node_id "$f" "$ftype")
+
+    # Track file for node creation
+    static_files_json=$(printf '%s' "$static_files_json" | jq \
+      --arg path "$f" --arg type "$ftype" \
+      '. + [{"path": $path, "type": $type}]')
+
+    # Static edges
+    local file_edges
+    file_edges=$(static_edges "$f" "$node_id")
+    all_static_edges=$(jq -n --argjson a "$all_static_edges" --argjson b "$file_edges" '$a + $b')
+  done
+
+  # Staleness sweep
+  local sweep_result
+  sweep_result=$(staleness_sweep "$nodes_json" "$edges_json" "$deleted_files" "$head_sha" "$threshold")
+  nodes_json=$(printf '%s' "$sweep_result" | jq '.[0]')
+  edges_json=$(printf '%s' "$sweep_result" | jq '.[1]')
+
+  # AI batch
+  local ai_results
+  ai_results=$(ai_batch)
+
+  # Extract AI edges
+  local ai_edges="[]"
+  local ai_count
+  ai_count=$(printf '%s' "$ai_results" | jq 'length')
+  if [[ "$ai_count" -gt 0 ]]; then
+    ai_edges=$(jq -n \
+      --argjson results "$ai_results" \
+      '[$results[] | . as $r |
+        ($r.path | gsub("\\.(?=[^.]*$)"; "") | gsub("/"; ".")) as $slug |
+        ($r.type // "unknown") as $t |
+        "\($t):\($slug)" as $from_id |
+        ($r.edges // []) | .[] |
+        {from: $from_id, to_path: .to_file, rel: .rel}
+      ]')
+  fi
+
+  # Merge AI-discovered files into static_files_json so nodes get created for them
+  if [[ "$ai_count" -gt 0 ]]; then
+    local ai_paths_to_add
+    ai_paths_to_add=$(jq -r \
+      --argjson static_f "$static_files_json" \
+      '($static_f | map(.path) | unique) as $known |
+       .[] | select(.path as $p | $known | any(. == $p) | not) | .path' \
+      <<< "$ai_results" 2>/dev/null || true)
+    while IFS= read -r ai_path; do
+      [[ -z "$ai_path" ]] && continue
+      local ai_ftype
+      ai_ftype=$(classify_file "$ai_path" "$classifiers")
+      [[ -z "$ai_ftype" ]] && ai_ftype="unknown"
+      static_files_json=$(printf '%s' "$static_files_json" | jq \
+        --arg path "$ai_path" --arg type "$ai_ftype" \
+        '. + [{"path": $path, "type": $type}]')
+    done <<< "$ai_paths_to_add"
+  fi
+
+  # Patch nodes (pass current swept nodes_json, not file, to preserve stale markers)
+  local new_nodes_arr
+  new_nodes_arr=$(patch_nodes "$nodes_json" "$ai_results" "$static_files_json" "$head_sha")
+  nodes_json="$new_nodes_arr"
+
+  # Write nodes.json first (needed for patch_edges)
+  local tmp_nodes_file
+  tmp_nodes_file=$(mktemp)
+  printf '%s' "$(jq -n --argjson n "$nodes_json" '{schema_version:1, nodes:$n}')" > "$tmp_nodes_file"
+
+  # Patch edges
+  local new_edges_arr
+  new_edges_arr=$(patch_edges "${branch_dir}/edges.json" "$all_static_edges" "$ai_edges" "$tmp_nodes_file" "$head_sha")
+  rm -f "$tmp_nodes_file"
+  edges_json="$new_edges_arr"
+
+  # Prune graph
+  local max_nodes
+  max_nodes=$(jq -r '.graph_limits.max_nodes // 2000' "$config_file")
+  local prune_result
+  prune_result=$(prune_graph "$nodes_json" "$edges_json" "$max_nodes")
+  nodes_json=$(printf '%s' "$prune_result" | jq '.[0]')
+  edges_json=$(printf '%s' "$prune_result" | jq '.[1]')
+
+  # Write all files atomically
+  atomic_write "${branch_dir}/nodes.json" \
+    "$(jq -n --argjson n "$nodes_json" '{schema_version:1, nodes:$n}')"
+  atomic_write "${branch_dir}/edges.json" \
+    "$(jq -n --argjson e "$edges_json" '{schema_version:1, edges:$e}')"
+
+  # Render memory.md
+  local md
+  md=$(render_memory_md "$branch_dir")
+  atomic_write "${branch_dir}/memory.md" "$md"
+
+  # Update config: dirty:false, last_synced
+  cfg_content=$(jq --arg sha "$head_sha" '. + {dirty: false, last_synced: $sha}' "$config_file")
+  atomic_write "$config_file" "$cfg_content"
+}
+
+# ─── cmd_branch_switch ───────────────────────────────────────────────────────
+
+cmd_branch_switch() {
+  check_prereqs
+  [[ ! -d "$DEVFLOW_DIR" ]] && exit 0  # CI mode
+
+  acquire_lock
+
+  local new_branch
+  new_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+  local new_canon
+  new_canon=$(canonicalize_branch "$new_branch")
+  local new_branch_dir="${DEVFLOW_DIR}/branches/${new_canon}"
+  local config_file="${DEVFLOW_DIR}/config.json"
+
+  # Swap active symlink
+  mkdir -p "$new_branch_dir"
+  ln -sfn "branches/${new_canon}" "${DEVFLOW_DIR}/active"
+
+  # Bootstrap new branch if no memory exists
+  if [[ ! -f "${new_branch_dir}/nodes.json" ]]; then
+    # Find nearest branch by commit distance
+    local nearest_canon=""
+    local nearest_distance=999999
+    for branch_path in "${DEVFLOW_DIR}"/branches/*/; do
+      local bcanon
+      bcanon=$(basename "$branch_path")
+      [[ "$bcanon" = "$new_canon" ]] && continue
+      [[ ! -f "${branch_path}nodes.json" ]] && continue
+      local bname="${bcanon//__//}"
+      local dist
+      dist=$(git rev-list --count "${bname}..HEAD" 2>/dev/null || echo 999999)
+      if [[ "$dist" -lt "$nearest_distance" ]]; then
+        nearest_distance="$dist"
+        nearest_canon="$bcanon"
+      fi
+    done
+
+    if [[ -n "$nearest_canon" ]]; then
+      cp -r "${DEVFLOW_DIR}/branches/${nearest_canon}/." "$new_branch_dir/"
+      local divergence_sha
+      divergence_sha=$(git merge-base "${nearest_canon//__//}" HEAD 2>/dev/null || git rev-parse HEAD)
+      local cfg_content
+      cfg_content=$(jq --arg sha "$divergence_sha" '. + {last_synced: $sha}' "$config_file")
+      atomic_write "$config_file" "$cfg_content"
+    else
+      # No branches: init empty
+      printf '%s' '{"schema_version":1,"nodes":[]}' > "${new_branch_dir}/nodes.json"
+      printf '%s' '{"schema_version":1,"edges":[]}' > "${new_branch_dir}/edges.json"
+      printf '%s' '# DevFlow Memory' > "${new_branch_dir}/memory.md"
+    fi
+  fi
+
+  # Conflict detection: compare new branch vs previous branch intent
+  local prev_nodes_file=""
+  for branch_path in "${DEVFLOW_DIR}"/branches/*/; do
+    local bcanon
+    bcanon=$(basename "$branch_path")
+    [[ "$bcanon" = "$new_canon" ]] && continue
+    [[ -f "${branch_path}nodes.json" ]] && prev_nodes_file="${branch_path}nodes.json" && break
+  done
+
+  local conflicts="[]"
+  if [[ -n "$prev_nodes_file" ]]; then
+    conflicts=$(jq -n \
+      --slurpfile new_nodes "${new_branch_dir}/nodes.json" \
+      --slurpfile prev_nodes "$prev_nodes_file" \
+      '
+      ($new_nodes[0].nodes | map({(.id): .intent}) | add // {}) as $new_map |
+      ($prev_nodes[0].nodes | map({(.id): .intent}) | add // {}) as $prev_map |
+      [$new_map | to_entries[] |
+        . as $entry |
+        if ($prev_map[$entry.key] != null) and
+           ($prev_map[$entry.key] != $entry.value) and
+           ($entry.value | length > 0) and
+           ($prev_map[$entry.key] | length > 0)
+        then {id: $entry.key, conflict: "intent",
+              branch_a: $entry.value, branch_b: $prev_map[$entry.key]}
+        else empty end
+      ]')
+  fi
+
+  local conflicts_file="${new_branch_dir}/graph_conflicts.json"
+  local n_conflicts
+  n_conflicts=$(printf '%s' "$conflicts" | jq 'length')
+  if [[ "$n_conflicts" -gt 0 ]]; then
+    atomic_write "$conflicts_file" \
+      "$(jq -n --arg sha "$(git rev-parse HEAD)" --argjson c "$conflicts" \
+        '{generated_at: $sha, nodes: $c, edges: []}')"
+  else
+    rm -f "$conflicts_file"
+  fi
+
+  # Stale branch cleanup
+  local git_branches=()
+  mapfile -t git_branches < <(git branch --format='%(refname:short)' | sed 's|/|__|g')
+  for branch_path in "${DEVFLOW_DIR}"/branches/*/; do
+    local bcanon
+    bcanon=$(basename "$branch_path")
+    local found=false
+    for gb in "${git_branches[@]}"; do
+      [[ "$gb" = "$bcanon" ]] && found=true && break
+    done
+    $found || rm -rf "$branch_path"
+  done
+
+  # Run sync on new branch
+  cmd_sync
+}
+
+# ─── cmd_version ─────────────────────────────────────────────────────────────
+
+cmd_version() {
+  echo "DevFlow $DEVFLOW_VERSION"
+  exit 0
+}
+
+# ─── dispatch ─────────────────────────────────────────────────────────────────
+
+case "${1:-}" in
+  --version)        cmd_version ;;
+  --branch-switch)  cmd_branch_switch ;;
+  --force)
+    shift
+    if [[ "${1:-}" = "--all" ]]; then
+      cmd_sync --force --all
+    else
+      cmd_sync --force
+    fi
+    ;;
+  "")               cmd_sync ;;
+  *)
+    err "Unknown command: $1. Usage: df-sync [--version|--force [--all]|--branch-switch]"
+    exit 1
+    ;;
+esac
