@@ -29,6 +29,8 @@ The graph model replaces three sections that previously lived in `memory.json`:
 
 `df-init` removes these keys from any existing `memory.json` and rebuilds them into `nodes.json` and `edges.json`. The `stack`, `architecture`, and `conventions` sections of `memory.json` are unchanged. Scripts must never write entity/route/contract data into `memory.json` — it will be ignored and will cause drift.
 
+`memory.json` carries an `architecture_last_synced` SHA field. `df-init` sets it to `head_sha` when it writes the architecture/conventions fields. `df-sync` does not update `memory.json`'s architecture fields (those require a manual `/init` re-run or a future `df-sync --update-architecture` flag). Skills can detect drift by comparing `architecture_last_synced` against `last_synced` in `config.json`: if they diverge by more than a configurable threshold, the skill warns "Architecture memory may be outdated — consider re-running /init".
+
 ---
 
 ## 3. File Structure
@@ -59,7 +61,7 @@ Added to `.devflow/active/` alongside existing files:
       "file": "Entities/Comment.cs",
       "intent": "Soft-deletable — hide, never purge",
       "confidence": "high",
-      "last_seen_sha": "a3f9c12"
+      "last_seen": "a3f9c12"
     }
   ]
 }
@@ -74,9 +76,9 @@ Added to `.devflow/active/` alongside existing files:
 | `type` | string | Built-in or custom node type |
 | `file` | string | Relative path from repo root |
 | `intent` | string | AI-inferred: the *why* behind this node's existence |
-| `confidence` | `"high" \| "inferred" \| "ai"` | Source of classification |
-| `last_seen_sha` | string | Last commit where this file appeared in a diff |
-| `stale` | boolean | Omitted when false; set to `true` when the node is stale (see §7 for staleness rules) |
+| `confidence` | `"manual" \| "high" \| "inferred" \| "ai"` | Source of classification. `manual` = developer wrote this, never overwritten automatically. `high` = glob classifier matched. `inferred` = heuristic match with lower certainty. `ai` = AI-classified or intent cleared for re-inference. |
+| `last_seen` | string | Last commit SHA where this file appeared in a diff |
+| `stale` | `"deleted" \| "aged" \| false` | Omitted when false. `"deleted"` = file no longer exists in HEAD. `"aged"` = file exists but hasn't appeared in any diff for `edge_staleness_threshold` commits. Skills show different warnings for each: deleted nodes are treated as gone; aged nodes are surfaced as unverified. |
 
 ### Built-in Node Types
 
@@ -104,22 +106,19 @@ Defined per-project in `config.json`:
       "from": "entity:Entities.Comment",
       "to": "entity:Entities.User",
       "rel": "depends_on",
-      "intent": "author ownership",
-      "last_seen_sha": "a3f9c12"
+      "last_seen": "a3f9c12"
     },
     {
       "from": "service:Services.CommentService",
       "to": "entity:Entities.Comment",
       "rel": "uses",
-      "intent": "CRUD — create, soft-delete, list by story",
-      "last_seen_sha": "a3f9c12"
+      "last_seen": "a3f9c12"
     },
     {
       "from": "entity:Entities.Comment",
       "to": "entity:Entities.Story",
       "rel": "depends_on",
-      "intent": "parent context",
-      "last_seen_sha": "a3f9c12"
+      "last_seen": "a3f9c12"
     }
   ]
 }
@@ -132,9 +131,10 @@ Defined per-project in `config.json`:
 | `from` | string | Source node `id` (format: `type:name`) |
 | `to` | string | Target node `id` (format: `type:name`) |
 | `rel` | string | Relationship type |
-| `intent` | string | AI-inferred: the *why* behind this relationship |
-| `last_seen_sha` | string | Last commit where this edge was confirmed |
-| `stale` | boolean | Omitted when false; set to `true` when either endpoint is stale (see §7 for staleness rules) |
+| `last_seen` | string | Last commit SHA where this edge was confirmed |
+| `stale` | `"deleted" \| "aged" \| false` | Omitted when false. Inherits from either endpoint: if either node is `"deleted"` → edge is `"deleted"`; if either is `"aged"` → edge is `"aged"`. |
+
+**Note:** Edges carry no `intent` field. The combination of `rel` type + the connected nodes' own `intent` fields is sufficient for skills to understand the relationship. Removing edge intent reduces AI response size and eliminates a field that was frequently redundant or low-quality.
 
 ### Built-in Relationship Types
 
@@ -182,23 +182,23 @@ write → <file>.tmp  →  fsync  →  rename <file>.tmp → <file>
 ### Per changed file in diff:
 
 **Step 1 — Classify node type**
-Run hybrid classifier (heuristics → AI fallback). Write or update entry in `nodes.json`. Set `confidence` and `last_seen_sha`.
+Run hybrid classifier (heuristics → AI fallback). Write or update entry in `nodes.json`. Set `confidence` and `last_seen`.
 
 **Step 2 — Static analysis → edges**
-Parse `using`/`import` statements, inheritance, interface implementations, function signatures. Extract raw edges `{ from, to, rel }` — no intent yet. Write to `edges.json`.
+Parse `using`/`import` statements, inheritance, interface implementations, function signatures. Extract raw edges `{ from, to, rel }` — no intent field. Write to `edges.json`.
 
 **Step 3 — Staleness sweep**
 Two independent staleness conditions:
 
-- **Hard stale**: the node's `file` no longer exists in HEAD → set `"stale": true` immediately, regardless of commit count.
-- **Soft stale**: the file still exists but hasn't appeared in any diff for `edge_staleness_threshold` commits → set `"stale": true`. Indicates the node may be accurate but unverified; skills surface it as a warning, not a blocker.
+- **Hard stale** (`"deleted"`): the node's `file` no longer exists in HEAD → set `stale: "deleted"` immediately, regardless of commit count. Skills treat deleted nodes as gone — they do not use their intent or edges for reasoning.
+- **Soft stale** (`"aged"`): the file still exists but hasn't appeared in any diff for `edge_staleness_threshold` commits → set `stale: "aged"`. Skills surface aged nodes as unverified warnings, not blockers.
 
-Edges inherit stale from either endpoint — if either `from` or `to` is stale, the edge is also marked stale. Skills surface stale nodes before reasoning begins.
+Edges inherit stale from their endpoints: if either `from` or `to` is `"deleted"` → edge becomes `"deleted"`; if either is `"aged"` → edge becomes `"aged"`. Skills surface stale nodes before reasoning begins.
 
 ### Batched once per sync:
 
 **AI Call — intent inference**
-One Claude call receives: all new/updated nodes without `intent` + all new edges without `intent` + the diff. Returns intent strings only. Never re-infers structure. Also classifies any nodes unresolved by heuristics in Step 1.
+One Claude call receives: all new/updated nodes without `intent` + the diff (or first 20 lines for new nodes). Returns intent strings for nodes only — edges carry no intent field. Never re-infers structure. Also classifies any nodes unresolved by heuristics in Step 1.
 
 Intent re-inference is triggered when a node's `file` changes by more than 30 lines in the diff — the existing `intent` string is cleared and the node is included in the next AI batch. Nodes with cleared intent have their `confidence` set to `"ai"` until re-inferred.
 
@@ -224,14 +224,14 @@ Render `memory.json` + `nodes.json` + `edges.json` into a single markdown file. 
 ## Graph
 
 Comment [entity] — Soft-deletable — hide, never purge
-  depends_on → User (author ownership)
-  depends_on → Story (parent context)
-  persisted_in → comments (soft-delete via is_hidden flag)
+  depends_on → User
+  depends_on → Story
+  persisted_in → comments
 
 CommentService [service] — Owns all comment mutations
-  uses → Comment (CRUD — create, soft-delete, list by story)
-  uses → ICommentRepository (data access)
-  emits → CommentCreatedEvent (notifies feed service)
+  uses → Comment
+  uses → ICommentRepository
+  emits → CommentCreatedEvent
 ```
 
 ---
@@ -407,7 +407,7 @@ Invoked automatically via a `post-commit` git hook installed by `df-init`. Not i
 1. Read config.json — get last_synced SHA
 2. If last_synced == HEAD: print "[DevFlow] Memory already current." and exit 0
 3. Run df-sync (diff HEAD vs last_synced, classify, patch nodes.json/edges.json/memory.json, regenerate memory.md)
-4. Verify all three files (nodes.json, edges.json, memory.json) have last_seen_sha / last_synced == HEAD
+4. Verify all three files (nodes.json, edges.json, memory.json) have last_seen / last_synced == HEAD
 5. If any file is out of sync: print "[DevFlow] Sync failed — <file> is still at <sha>. Re-running df-sync." and repeat step 3 once
 6. If still out of sync after retry: print "[DevFlow] mem-sync failed. Run df-sync manually and check for lock or write errors." and exit 1
 7. On success: print "[DevFlow] Memory synced to <HEAD sha>." and exit 0
@@ -447,7 +447,7 @@ Invoked automatically via a `post-commit` git hook installed by `df-init`. Not i
 
 `edge_rel_types`: closed set of valid `rel` values. `builtin` is fixed; `custom` is project-defined. Any unrecognised value on write is rejected with a warning.
 
-`graph_limits.max_nodes` / `graph_limits.max_edges`: when exceeded, `df-sync` prunes nodes that are `stale: true` AND whose `last_seen_sha` is more than `prune_min_age_commits` commits behind HEAD AND have no inbound edges. Their edges are deleted with them. `prune_min_age_commits` defaults to 90 — this intentional gap between `edge_staleness_threshold` (30) and the prune floor (90) gives stale nodes time to be re-discovered before deletion. If pruning doesn't bring the count below the limit, `df-sync` logs a warning and continues — it never silently drops non-stale nodes.
+`graph_limits.max_nodes` / `graph_limits.max_edges`: when exceeded, `df-sync` prunes nodes that are `stale: "deleted"` or `stale: "aged"` AND whose `last_seen` is more than `prune_min_age_commits` commits behind HEAD AND have no inbound edges. Their edges are deleted with them. `prune_min_age_commits` defaults to 90 — this intentional gap between `edge_staleness_threshold` (30) and the prune floor (90) gives stale nodes time to be re-discovered before deletion. If pruning doesn't bring the count below the limit, `df-sync` logs a warning and continues — it never silently drops non-stale nodes.
 
 ---
 

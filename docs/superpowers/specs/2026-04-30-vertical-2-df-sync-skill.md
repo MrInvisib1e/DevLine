@@ -107,11 +107,11 @@ For each changed file (excluding deleted set):
 
 Run after collecting changed files, before AI batch:
 
-- **Hard stale:** for each path in deleted set → find node in `nodes.json` by `path` field → set `stale: true`
-- **Soft stale:** for each node in `nodes.json` where `stale: false`:
+- **Hard stale (`"deleted"`):** for each path in deleted set → find node in `nodes.json` by `path` field → set `stale: "deleted"`
+- **Soft stale (`"aged"`):** for each node in `nodes.json` where `stale` is false:
   - Run `git log --follow --oneline -- <node.path>` and count commits since the node's `last_seen` SHA
-  - If count ≥ `edge_staleness_threshold` → set `stale: true`
-- **Edge staleness:** for each edge in `edges.json` — if either endpoint node is `stale: true` → set edge `stale: true`
+  - If count ≥ `edge_staleness_threshold` → set `stale: "aged"`
+- **Edge staleness:** for each edge in `edges.json` — if either endpoint is `"deleted"` → edge `stale: "deleted"`; if either is `"aged"` → edge `stale: "aged"`
 
 ### Step 5: AI batch (`ai_batch`)
 
@@ -171,7 +171,7 @@ Edge `intent` field is omitted from the AI prompt to reduce response size. Edges
 
 ### Step 7: Finalize
 
-1. `prune_graph`: if `nodes.json` count > `graph_limits.max_nodes` → remove oldest stale nodes (by `last_seen` SHA) until under limit. Also remove their associated edges.
+1. `prune_graph`: if `nodes.json` count > `graph_limits.max_nodes` → remove oldest `stale: "deleted"` or `stale: "aged"` nodes (by `last_seen` SHA, oldest first) until under limit. Also remove their associated edges.
 2. `render_memory_md`: regenerate `.devflow/branches/<canon>/memory.md` — **tiered format:**
    - **Summary section** (always included): stack info + top 30 nodes by priority (routes first, then entities, then services, then contracts). Each node = one line: `<type> <id>: <intent>`. This is what AI skills read by default.
    - **Full graph section** (appended after a `<!-- full-graph -->` marker): all remaining nodes in the same compact format. Skills that need complete graph context read past the marker or read `nodes.json` directly.
@@ -352,7 +352,7 @@ A 4-step AI skill agents invoke before reading graph memory.
 | post-commit: node created | Changed file gets node in nodes.json with intent (mock mode) |
 | post-commit: static C# edges | `using` directives parsed into edges |
 | post-commit: static TS edges | `import` statements parsed into edges |
-| post-commit: deleted file stale | Deleted file node marked `stale:true` |
+| post-commit: deleted file stale | Deleted file node marked `stale:"deleted"` |
 | post-commit: last_synced updated | `config.json` has `last_synced == HEAD SHA` after sync |
 | post-commit: memory.md regenerated | memory.md exists and contains node names |
 | post-commit: dirty protocol | `dirty:true` set before writes, `dirty:false` after success |
