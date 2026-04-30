@@ -65,7 +65,7 @@ teardown() {
 
 @test "remove: removing non-existent service exits 1 with message" {
   bash -c "cd '$REPO' && DEVFLOW_WORKSPACE_DIR='$DEVFLOW_WORKSPACE_DIR' '$DF_WORKSPACE' add myws core '$REPO'"
-  run bash -c "cd '$REPO' && DEVFLOW_WORKSPACE_DIR='$DEVFLOW_WORKSPACE_DIR' '$DF_WORKSPACE' remove myws ghost 2>&1 || true"
+  run bash -c "cd '$REPO' && DEVFLOW_WORKSPACE_DIR='$DEVFLOW_WORKSPACE_DIR' '$DF_WORKSPACE' remove myws ghost 2>&1"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "not found" ]]
 }
@@ -98,7 +98,7 @@ teardown() {
 }
 
 @test "read: missing registry prints error and exits 1" {
-  run bash -c "cd '$REPO' && DEVFLOW_WORKSPACE_DIR='$DEVFLOW_WORKSPACE_DIR' '$DF_WORKSPACE' read noexist core memory.md 2>&1 || true"
+  run bash -c "cd '$REPO' && DEVFLOW_WORKSPACE_DIR='$DEVFLOW_WORKSPACE_DIR' '$DF_WORKSPACE' read noexist core memory.md 2>&1"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "not registered" ]]
 }
@@ -106,7 +106,7 @@ teardown() {
 @test "read: sibling path not on disk prints warning and exits 1" {
   # Register a path that does not exist
   echo '{"ghost":"/nonexistent/path"}' > "$DEVFLOW_WORKSPACE_DIR/myws.json"
-  run bash -c "cd '$REPO' && DEVFLOW_WORKSPACE_DIR='$DEVFLOW_WORKSPACE_DIR' '$DF_WORKSPACE' read myws ghost memory.md 2>&1 || true"
+  run bash -c "cd '$REPO' && DEVFLOW_WORKSPACE_DIR='$DEVFLOW_WORKSPACE_DIR' '$DF_WORKSPACE' read myws ghost memory.md 2>&1"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "path not found" ]] || [[ "$output" =~ "not found" ]]
 }
@@ -115,7 +115,7 @@ teardown() {
   # A real dir but no .devflow/ inside
   tmpdir="$(mktemp -d)"
   echo "{\"bare\":\"$tmpdir\"}" > "$DEVFLOW_WORKSPACE_DIR/myws.json"
-  run bash -c "cd '$REPO' && DEVFLOW_WORKSPACE_DIR='$DEVFLOW_WORKSPACE_DIR' '$DF_WORKSPACE' read myws bare memory.md 2>&1 || true"
+  run bash -c "cd '$REPO' && DEVFLOW_WORKSPACE_DIR='$DEVFLOW_WORKSPACE_DIR' '$DF_WORKSPACE' read myws bare memory.md 2>&1"
   rm -rf "$tmpdir"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "no .devflow" ]] || [[ "$output" =~ "not initialized" ]] || [[ "$output" =~ "df-init" ]]
@@ -128,7 +128,7 @@ teardown() {
   touch "$tmpdir/.devflow/branches/main/memory.md"
   ln -sfn "branches/main" "$tmpdir/.devflow/active"
   echo "{\"empty\":\"$tmpdir\"}" > "$DEVFLOW_WORKSPACE_DIR/myws.json"
-  run bash -c "cd '$REPO' && DEVFLOW_WORKSPACE_DIR='$DEVFLOW_WORKSPACE_DIR' '$DF_WORKSPACE' read myws empty memory.md 2>&1 || true"
+  run bash -c "cd '$REPO' && DEVFLOW_WORKSPACE_DIR='$DEVFLOW_WORKSPACE_DIR' '$DF_WORKSPACE' read myws empty memory.md 2>&1"
   rm -rf "$tmpdir"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "empty" ]] || [[ "$output" =~ "unreadable" ]]
