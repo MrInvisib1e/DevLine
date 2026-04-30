@@ -105,7 +105,7 @@ teardown() {
 }
 
 @test "--restore: non-existent snapshot name exits 1 with message" {
-  run bash -c "cd '$REPO' && '$DF_EXPORT' --restore 'nonexistent-snapshot' 2>&1 || true"
+  run bash -c "cd '$REPO' && '$DF_EXPORT' --restore 'nonexistent-snapshot' 2>&1"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "not found" ]] || [[ "$output" =~ "Snapshot" ]]
 }
@@ -123,7 +123,7 @@ teardown() {
 
 @test "missing memory.json: exits 1 with message" {
   rm "$REPO/.devflow/branches/main/memory.json"
-  run bash -c "cd '$REPO' && '$DF_EXPORT' 2>&1 || true"
+  run bash -c "cd '$REPO' && '$DF_EXPORT' 2>&1"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "memory" ]] || [[ "$output" =~ "not initialised" ]]
 }
