@@ -21,7 +21,10 @@ check_prereqs() {
 atomic_write() {
   local file="$1" content="$2"
   local tmp="${file}.tmp"
-  if [[ -e "$file" && ! -w "$file" ]]; then return 1; fi
+  if [[ -e "$file" && ! -w "$file" ]]; then
+    err "Cannot write to $file: permission denied"
+    return 1
+  fi
   printf '%s' "$content" > "$tmp"
   sync 2>/dev/null || true
   mv "$tmp" "$file"
@@ -52,7 +55,7 @@ cmd_add() {
   local updated
   updated=$(echo "$existing" | jq --arg svc "$service" --arg path "$path" '. + {($svc): $path}')
   atomic_write "$reg" "$updated"
-  echo "[DevFlow] Registered $service → $path in workspace $workspace."
+  echo "[DevFlow] Registered $service -> $path in workspace $workspace."
 }
 
 cmd_remove() {
@@ -86,7 +89,7 @@ cmd_list() {
   # Use nullglob-style: check if any .json files exist
   while IFS= read -r f; do
     files+=("$f")
-  done < <(find "$WORKSPACE_DIR" -maxdepth 1 -name "*.json" 2>/dev/null | sort || true)
+  done < <(find "$WORKSPACE_DIR" -maxdepth 1 -name "*.json" 2>/dev/null | sort)
 
   if [[ "${#files[@]}" -eq 0 ]]; then
     echo "[DevFlow] No workspaces registered. Use df-workspace add <name> <service> <path>."
@@ -116,16 +119,16 @@ cmd_read() {
     exit 1
   fi
   if [[ ! -d "$sibling_path" ]]; then
-    err "⚠ Sibling \"$service\" path not found: $sibling_path. Skipping."
+    err "Sibling \"$service\" path not found: $sibling_path. Skipping."
     exit 1
   fi
   if [[ ! -d "$sibling_path/.devflow" ]]; then
-    err "⚠ Sibling \"$service\" has no .devflow/ directory. Run df-init in that repo first. Skipping."
+    err "Sibling \"$service\" has no .devflow/ directory. Run df-init in that repo first. Skipping."
     exit 1
   fi
   local target_file="${sibling_path}/.devflow/active/${memory_file}"
   if [[ ! -f "$target_file" ]] || [[ ! -s "$target_file" ]]; then
-    err "⚠ Sibling \"$service\" ${memory_file} is empty or unreadable. Skipping."
+    err "Sibling \"$service\" ${memory_file} is empty or unreadable. Skipping."
     exit 1
   fi
   cat "$target_file"
