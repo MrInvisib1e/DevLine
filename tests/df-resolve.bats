@@ -78,7 +78,7 @@ teardown() {
 }
 
 @test "unknown node ID: exits 1 with message" {
-  run bash -c "cd '$REPO' && '$DF_RESOLVE' --accept a 'entity:Nonexistent' 2>&1 || true"
+  run bash -c "cd '$REPO' && '$DF_RESOLVE' --accept a 'entity:Nonexistent' 2>&1"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "not found" ]]
 }
@@ -107,7 +107,7 @@ teardown() {
 }
 
 @test "--rewrite-intent: unknown node ID exits 1 with message" {
-  run bash -c "cd '$REPO' && '$DF_RESOLVE' --rewrite-intent 'entity:Nonexistent' 'some intent' 2>&1 || true"
+  run bash -c "cd '$REPO' && '$DF_RESOLVE' --rewrite-intent 'entity:Nonexistent' 'some intent' 2>&1"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "not found" ]]
 }
@@ -116,7 +116,7 @@ teardown() {
 
 @test "not a git repo: exits 1 with message" {
   tmpdir="$(mktemp -d)"
-  run bash -c "cd '$tmpdir' && '$DF_RESOLVE' --list 2>&1 || true"
+  run bash -c "cd '$tmpdir' && '$DF_RESOLVE' --list 2>&1"
   rm -rf "$tmpdir"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "Not a git repo" ]]
