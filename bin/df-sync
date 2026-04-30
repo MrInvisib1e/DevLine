@@ -555,8 +555,17 @@ cmd_sync() {
     mapfile -t changed_files < <(git ls-files | grep -v '^\.devflow/')
     deleted_files=""
   else
-    mapfile -t changed_files < <(git diff --name-only --diff-filter=ACMR "${last_synced}..HEAD" 2>/dev/null | grep -v '^\.devflow/' || true)
-    deleted_files=$(git diff --name-only --diff-filter=D "${last_synced}..HEAD" 2>/dev/null | grep -v '^\.devflow/' || true)
+    local diff_out diff_del_out
+    if ! diff_out=$(git diff --name-only --diff-filter=ACMR "${last_synced}..HEAD" 2>/dev/null); then
+      err "git diff failed"
+      exit 1
+    fi
+    if ! diff_del_out=$(git diff --name-only --diff-filter=D "${last_synced}..HEAD" 2>/dev/null); then
+      err "git diff failed"
+      exit 1
+    fi
+    mapfile -t changed_files < <(printf '%s\n' "$diff_out" | grep -v '^\.devflow/' || true)
+    deleted_files=$(printf '%s\n' "$diff_del_out" | grep -v '^\.devflow/' || true)
   fi
 
   # Apply large-repo cap (unless --all)
@@ -718,7 +727,7 @@ cmd_branch_switch() {
   ln -sfn "branches/${new_canon}" "${DEVFLOW_DIR}/active"
 
   # Bootstrap new branch if no memory exists
-  if [[ ! -f "${new_branch_dir}/nodes.json" ]]; then
+  if [[ ! -f "${new_branch_dir}/memory.json" ]]; then
     # Find nearest branch by commit distance
     local nearest_canon=""
     local nearest_distance=999999
