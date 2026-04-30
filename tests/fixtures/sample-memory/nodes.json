@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "nodes": [
+    {
+      "id": "entity:Entities.Comment",
+      "type": "entity",
+      "file": "Entities/Comment.cs",
+      "intent": "Soft-deletable content unit attached to a story",
+      "confidence": "high",
+      "stale": false,
+      "last_seen": "abc1234"
+    },
+    {
+      "id": "service:Services.CommentService",
+      "type": "service",
+      "file": "Services/CommentService.cs",
+      "intent": "Owns all comment mutations",
+      "confidence": "high",
+      "stale": false,
+      "last_seen": "abc1234"
+    },
+    {
+      "id": "route:src.routes.+page",
+      "type": "route",
+      "file": "src/routes/+page.svelte",
+      "intent": "Home page route",
+      "confidence": "ai",
+      "stale": false,
+      "last_seen": "abc1234"
+    },
+    {
+      "id": "contract:Contracts.CommentCreatedEvent",
+      "type": "contract",
+      "file": "Contracts/CommentCreatedEvent.cs",
+      "intent": "Event emitted when a new comment is created",
+      "confidence": "ai",
+      "stale": "aged",
+      "last_seen": "def5678"
+    },
+    {
+      "id": "service:Services.UserService",
+      "type": "service",
+      "file": "Services/UserService.cs",
+      "intent": "Manages user accounts",
+      "confidence": "high",
+      "stale": false,
+      "last_seen": "abc1234"
+    }
+  ]
+}

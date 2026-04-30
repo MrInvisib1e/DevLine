@@ -1,0 +1,33 @@
+{
+  "feature": "comments",
+  "approved_at": "2026-04-30T10:00:00Z",
+  "slices": [
+    {
+      "id": 1,
+      "name": "User can create a comment",
+      "layers": ["db", "service", "api", "frontend"],
+      "result": "POST /api/comments returns 201",
+      "test_cmd": "echo PASS_SLICE_1",
+      "depends_on": [],
+      "status": "pending"
+    },
+    {
+      "id": 2,
+      "name": "User can delete a comment",
+      "layers": ["service", "api", "frontend"],
+      "result": "DELETE /api/comments/:id returns 204",
+      "test_cmd": "exit 1",
+      "depends_on": [1],
+      "status": "failed"
+    },
+    {
+      "id": 3,
+      "name": "User can list comments",
+      "layers": ["service", "api", "frontend"],
+      "result": "GET /api/stories/:id/comments returns list",
+      "test_cmd": null,
+      "depends_on": [],
+      "status": "done"
+    }
+  ]
+}
