@@ -18,7 +18,8 @@ This is Vertical 2. It builds on the `.devflow/` layout, lock protocol, atomic w
 ```bash
 df-sync                 # re-sync current branch from last_synced SHA to HEAD
 df-sync --branch-switch # called by post-checkout hook when $3 == 1
-df-sync --force         # re-sync from scratch (ignores last_synced, processes all files)
+df-sync --force         # re-sync from scratch (ignores last_synced), subject to max_files_per_sync cap
+df-sync --force --all   # re-sync from scratch, no file count cap (full repo import)
 df-sync --version       # print version and exit 0
 ```
 
@@ -63,6 +64,17 @@ Single script: `bin/df-sync`. No shared libraries. All modes in one file.
 - Normal: `git diff --name-only <last_synced>..HEAD` → list of changed paths
 - Deleted files (present in `last_synced` tree but absent in HEAD): collected separately as "deleted set" via `git diff --name-only --diff-filter=D <last_synced>..HEAD`
 - If `git diff` fails (e.g., invalid SHA): exit 1 with `[DevFlow] git diff failed`
+
+**Large repo cap:**
+
+After collecting changed files, if count > `graph_limits.max_files_per_sync` (default: 200):
+
+1. Sort by priority: routes first, then entities, then services, then contracts, then others
+2. Take the top `max_files_per_sync` files
+3. Log: `[DevFlow] Large sync: <N> files changed, capped at <max_files_per_sync> — run df-sync --force --all to process all files`
+4. The `--all` flag bypasses the cap entirely (processes all changed files regardless of count)
+
+This cap applies to both normal and `--force` mode. `--force --all` is the escape hatch for initial import of large repos.
 
 ### Step 3: Per-file — classify + static edges
 
@@ -344,6 +356,8 @@ A 4-step AI skill agents invoke before reading graph memory.
 | branch-switch: stale cleanup | Deleted branch's `.devflow/branches/<canon>/` removed |
 | CI mode | No `.devflow/` → exit 0 silently |
 | `--force` from scratch | nodes.json populated from all repo files |
+| large repo cap | >200 changed files → capped at 200, warning logged, priority ordering applied |
+| `--force --all` bypasses cap | All files processed regardless of count |
 | not a git repo | Exit 1 with correct message |
 
 ---
