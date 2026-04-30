@@ -1,0 +1,16 @@
+{
+  "conflicts": [
+    {
+      "node_id": "entity:Entities.Comment",
+      "field": "intent",
+      "branch_a": { "branch": "main", "value": "Soft-deletable content unit" },
+      "branch_b": { "branch": "feature/comments", "value": "Append-only comment log" }
+    },
+    {
+      "node_id": "service:Services.CommentService",
+      "field": "intent",
+      "branch_a": { "branch": "main", "value": "Owns all comment mutations" },
+      "branch_b": { "branch": "feature/comments", "value": "Read-only comment query service" }
+    }
+  ]
+}

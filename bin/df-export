@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+echo "[DevFlow] df-export stub — not yet implemented" >&2
+exit 1
