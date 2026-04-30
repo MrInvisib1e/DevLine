@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEVFLOW_VERSION="0.1.0"
+
+err() { echo "[DevFlow] $*" >&2; }
+
+echo "[DevFlow] df-sync stub — not yet implemented" >&2
+exit 1
