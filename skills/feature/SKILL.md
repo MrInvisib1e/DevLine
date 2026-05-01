@@ -439,53 +439,381 @@ Present the full slice plan:
 
 ## Phase 3: Slice Execution
 
-*(Covered in the continuation of this skill — Task 9)*
+Goal: implement all slices, batch by batch, with retry loops.
+
+### Batch Execution Loop
+
+For each batch (in order):
+
+1. Read all slices in this batch from their JSON files (check `depends_on` all satisfied)
+2. If batch has >1 slice AND slices are parallel-safe AND QUICK_MODE=false: dispatch concurrently using Task tool
+3. If QUICK_MODE=true OR batch has 1 slice OR slices are sequential: dispatch one at a time
+
+**For each slice in the batch:**
+
+#### Step 1: Set Up Worktree (parallel slices only)
+
+For parallel batches (full mode), create an isolated worktree per slice:
+
+```bash
+df-workspace create feature/<feature-slug>-slice-N
+```
+
+Write the worktree path to `slice-N.json` → `worktree_path` field.
+
+For sequential slices (or quick mode): work directly on the feature branch (no worktree).
+
+#### Step 2: Dispatch Implementation Agent
+
+Combine:
+- `skills/feature/agents/implementation.md` — role/contract
+- `slice-N-<slug>.md` — mission briefing
+- Domain Analysis + Pattern Library sections from `plan.md` — context
+- If cycle > 1: Prior Work section (see Retry below)
+
+Dispatch as a subagent. Wait for the Implementation Report.
+
+Update `slice-N.json`:
+- `status: "in_progress"`
+- `cycle: N`
+
+#### Step 3: Handle Implementation Result
+
+**DONE:** Proceed to Step 4.
+
+**DONE_WITH_CONCERNS:** Read concerns. If correctness-blocking → treat as BLOCKED. Otherwise → proceed to Step 4 and note concerns.
+
+**NEEDS_CONTEXT:** Provide the missing context (check `plan.md`, `df-explain` output). Re-dispatch the same agent.
+
+**BLOCKED:**
+- If context problem → provide context, re-dispatch
+- If reasoning problem → re-dispatch with more capable model
+- If blocker is a dependency on another slice → add dependency to `depends_on`, defer to next batch
+- If unresolvable → mark `status: "stuck"`, continue with other slices
+
+Update `slice-N.json`:
+- `implementation_summary: "..."`
+- `files_changed: [...]`
+- `concerns: null | "..."`
+
+#### Step 4: Dispatch Test Agent (unless skip criteria met)
+
+**Skip if ALL of:**
+- Quick mode AND ≤2 implementation steps AND test_cmd already passed AND no new user-facing behavior
+
+**Always dispatch if any of:**
+- New user-facing behavior (any new UI or API)
+- >3 files modified
+- No existing e2e coverage for this behavior
+
+If skipping: update `slice-N.json` → `test_agent_skipped: true`, `test_agent_skip_reason: "..."`
+
+If dispatching: combine `agents/test.md` + slice mission + domain test patterns. Wait for Test Agent Report.
+
+Update `slice-N.json`:
+- `test_summary: {...}`
+- `test_result: "PASS (N/N)" | "FAIL (N/N)"`
+
+#### Step 5: Dispatch Slice Review Agent
+
+Combine:
+- `agents/slice-review.md` — role/contract
+- `slice-N-<slug>.md` — spec to review against
+- All files from `files_changed` — actual implementation
+- Test results from Step 4 (or test_cmd result if test agent was skipped)
+- Domain Analysis from `plan.md` — architecture context
+
+Wait for Slice Review Report.
+
+**If PASS:** mark `slice-N.json` → `status: "done"`. Proceed to next slice.
+
+**If FAIL:** go to Retry.
+
+#### Retry Loop
+
+Max cycles: `slice-N.json` → `max_cycles` (default 3).
+
+On FAIL:
+1. Read `review_findings.required_changes` from the Slice Review Report
+2. Increment `cycle` in `slice-N.json`
+3. If `cycle > max_cycles`: mark `status: "stuck"`, skip this slice, continue
+
+Retry dispatch — combine:
+- `agents/implementation.md` — role
+- `slice-N-<slug>.md` — original mission (DO NOT modify)
+- Domain context from `plan.md`
+- **Prior Work section** (injected at top of mission context):
+
+```
+## Prior Work (Cycle N)
+
+**What was implemented:**
+[implementation_summary from previous cycle]
+
+**Files changed:**
+- path/to/file.cs — [brief description]
+
+**Test result:** PASS (N/N) | FAIL (N/N)
+
+**Review verdict:** FAIL
+
+**Required changes:**
+1. [specific fix]
+2. [specific fix]
+
+Read the existing files first. Fix ONLY the listed issues. Do NOT re-implement from scratch.
+```
+
+After retry, return to Step 3.
+
+#### Merge Parallel Slices (after each parallel batch)
+
+After all slices in a parallel batch complete (done or stuck):
+
+1. For each slice with a worktree:
+   ```bash
+   # Merge slice branch into feature branch
+   git checkout feature/<feature-slug>
+   git merge feature/<feature-slug>-slice-N
+   ```
+2. If merge conflicts: run `df-resolve` and ask user to resolve, then retry merge
+3. Clean up worktrees:
+   ```bash
+   df-workspace remove feature/<feature-slug>-slice-N
+   ```
+
+#### Stuck Slice Handling
+
+Stuck slices block their dependents but not independent slices.
+
+After a batch completes with stuck slices, report to user:
+
+```
+Slice N ("<name>") is stuck after 3 cycles. Its dependents cannot proceed:
+- Slice M ("<name>") — blocked
+
+Other slices not dependent on Slice N will continue.
+```
+
+Ask: "Would you like to: (1) manually implement slice N and mark it done, (2) remove it and its dependents from scope, or (3) abort?"
 
 ---
 
 ## Phase 4: Integration Testing
 
-*(Covered in the continuation of this skill — Task 9)*
+Goal: verify all slices work together as a complete feature.
+
+Run AFTER all batches complete (even if some slices are stuck — test what's there).
+
+**Quick mode skip:** If feature has only ONE slice: skip Phase 4 (single slice has no cross-slice interactions to test). Record `## Phase 4 Status: SKIPPED` in `plan.md`.
+
+### Step 1: Dispatch Integration Test Agent
+
+Combine:
+- `agents/integration-test.md` — role/contract
+- All completed slice MDs (from `plan.md` slice list — skip stuck slices)
+- Full `plan.md`
+- Domain context (test patterns)
+
+Wait for Integration Test Report.
+
+### Step 2: Handle Result
+
+**DONE:** Proceed to Phase 5. Record `## Phase 4 Status: COMPLETE` in `plan.md`.
+
+**DONE_WITH_CONCERNS:** Note concerns. Proceed to Phase 5 but flag concerns in `plan.md`. Record `## Phase 4 Status: COMPLETE_WITH_CONCERNS`.
+
+**BLOCKED or failures:** Report to user. Ask: "Integration tests failing — see report. Fix and re-run integration tests, or proceed to final review anyway?"
+
+Write integration test results to `plan.md` under `## Integration Test Results`.
 
 ---
 
 ## Phase 5: Final Review
 
-*(Covered in the continuation of this skill — Task 9)*
+Goal: holistic architecture-aware review of the complete feature.
+
+### Step 1: Dispatch Final Review Agent
+
+Combine:
+- `agents/final-review.md` — role/contract
+- Full `plan.md` (PRD + domain + all slice statuses + integration results)
+- All files changed across all slices (from each slice's `files_changed`)
+- `.devflow/memory/` — project architecture context
+
+Wait for Final Review Report.
+
+### Step 2: Handle Result
+
+**APPROVED:** Proceed to Phase 6. Record `## Phase 5 Status: COMPLETE` in `plan.md`.
+
+**CHANGES_REQUESTED:**
+- Read required changes
+- Determine which slices are affected
+- Re-open affected slices: reset `status: "pending"`, create new slice JSON/MD for fix if needed
+- Re-run Phase 3 for affected slices only
+- Re-run Phase 5 after fixes
+- If CHANGES_REQUESTED after >2 cycles: escalate to user — present all findings and ask for direction
+
+Write final review result to `plan.md` under `## Final Review`.
 
 ---
 
 ## Phase 6: Completion
 
-*(Covered in the continuation of this skill — Task 9)*
+Goal: sync memory, archive the plan, and hand off to finishing-a-development-branch.
+
+### Step 1: Memory Sync
+
+```bash
+df-sync
+```
+
+If df-sync fails: warn but continue (don't abort completion).
+
+### Step 2: Archive Plan
+
+Update `plan.md`:
+- Add `## Completion` section with timestamp
+- Update overall status: `COMPLETE` (or `COMPLETE_WITH_STUCK_SLICES` if any stuck)
+- List stuck slices if any (for follow-up)
+
+The plan folder remains as an audit trail. Do NOT delete it.
+
+### Step 3: Remove Active Symlink
+
+```bash
+rm .devflow/active
+```
+
+This marks the feature as no longer in-progress.
+
+### Step 4: Hand Off
+
+Invoke the `finishing-a-development-branch` skill. This skill handles the merge/PR/cleanup decision — do not make that decision yourself.
+
+Present a summary to the user:
+
+```
+## Feature Complete: <Feature Name>
+
+**Slices:** N done, M stuck (if any)
+**Tests:** X passing, Y failing (if any)
+**Branch:** feature/<feature-slug>
+
+[finishing-a-development-branch will guide you through merge/PR options]
+```
 
 ---
 
 ## /feature resume
 
-*(Covered in the continuation of this skill — Task 9)*
+### Step 1: Check for Active Plan
+
+```bash
+readlink .devflow/active
+```
+
+If `.devflow/active` does not exist: error E10 — "No active feature found. Use `/feature <description>` to start one."
+
+If it exists but the target directory is missing: try to find the plan by listing `.devflow/plans/` and ask user which to resume.
+
+### Step 2: Load Plan State
+
+Read `plan.md` — extract:
+- Feature name
+- PRD
+- Domain Analysis
+- Execution batches
+
+Read all `slice-N-*.json` files — build status map.
+
+### Step 3: Find Resume Point
+
+Scan batches in order:
+
+1. Any slices `stuck`? → Report them to user before resuming
+2. Find the **first batch** that has `pending` or `in_progress` slices
+3. For `in_progress` slices: check `steps[].done` — show progress, offer to restart or continue from last done step
+4. All slices `done`? → Check `plan.md` for `## Phase 4 Status`:
+   - Missing or not COMPLETE → resume at Phase 4
+   - COMPLETE → check `## Phase 5 Status`: not COMPLETE → resume at Phase 5
+   - Phase 5 COMPLETE → run Phase 6
+
+### Step 4: Show Resume Status
+
+```
+## Resuming: <Feature Name>
+
+| Slice | Status | Progress |
+|-------|--------|----------|
+| 1: User can create comment | ✅ done | — |
+| 2: User can list comments | 🔄 in_progress | Step 2/5 done |
+| 3: User can delete comment | ⏳ pending | — |
+
+**Resuming at:** Slice 2 (continuing from Step 3)
+**Next batch:** Slice 3 (after Slice 2 completes)
+```
+
+Confirm with user, then resume Phase 3 at the identified slice.
+
+### Edge Cases
+
+- `.devflow/active` symlink points to non-existent directory: list `.devflow/plans/` and ask user which to resume
+- All slices done but no active symlink: plan is archived — can't resume (suggest `/feature <desc>` for new work)
+- All slices stuck: report to user and ask for direction
+
+---
+
+## Quick Mode
+
+Triggered by explicit `/feature quick <description>` invocation only. Never auto-activate.
+
+| Phase | Full Mode | Quick Mode |
+|-------|-----------|------------|
+| Phase 0 | 3–6 clarifying questions | 2–3 questions |
+| Phase 1 | Full domain analysis | Same |
+| Phase 2 | Full decomposition | Auto-generate 1–3 slices, still requires approval |
+| Phase 3 | Parallel dispatch, worktrees | Always sequential, direct commits, no worktrees |
+| Test Agent | Always dispatch | Skip if: ≤2 steps + test_cmd passed + modifying existing behavior |
+| Phase 4 | Always | Skip if single slice and no stuck slices |
+| Phase 5 | Always | Same |
+
+**Quick mode boundary:** If analysis during Phase 2 reveals >3 slices are genuinely needed, warn the user: "This feature may require more than 3 slices — quick mode auto-limits to 3 most important. Continue with quick mode (auto-slim to 3) or switch to full mode?" Wait for answer before proceeding.
 
 ---
 
 ## Error Reference
 
-| Code | Condition | Recovery |
-|------|-----------|----------|
-| E01 | `.devflow/` missing — df-init not run | Run `/init` first |
-| E02 | `.devflow/memory/` empty or missing | Run df-sync or `/init` |
-| E03 | `.devflow/active` exists on fresh start | Use `/feature resume` or remove symlink manually |
-| E04 | User rejected PRD (Phase 0 gate) | Revise PRD per feedback, re-present |
-| E05 | User rejected slices (Phase 2 gate) | Adjust per feedback, regenerate affected slices |
-| E06 | Slice stuck after max_cycles | Report to user: fix manually / skip / abort |
-| E07 | Worktree creation failed | Check disk space, branch conflicts; retry or fall back to sequential |
-| E08 | Merge conflict (non-additive) | Indicates planning error; escalate to user for manual resolution |
-| E09 | Integration test persistent failure | Report specific failures; ask user to fix or override |
-| E10 | `.devflow/active` missing on resume | Check for plan folder; offer to recreate symlink |
-| E11 | Final review CHANGES_REQUESTED (>2 cycles) | Escalate to user; present all findings |
-| E12 | Slice JSON corrupted or unreadable | Report specific file; ask user to fix or recreate from plan.md |
-| E13 | df-explain failed | Retry once; if persistent, proceed with degraded domain analysis |
-| E14 | Build failure in pre-flight | HALT — fix build before starting feature |
-| E15 | All slices in batch stuck | Report all stuck slices; ask user for direction |
+| Code | Trigger | Action |
+|------|---------|--------|
+| E01 | df-init not run — `.devflow/` missing | HALT — "Run `/init` first" |
+| E02 | Memory empty — `.devflow/memory/` missing or empty | HALT — "Run df-init to set up project memory" |
+| E03 | Active plan exists on fresh `/feature` start | HALT — "Use `/feature resume` or delete `.devflow/active` to abort" |
+| E04 | User rejects PRD | Revise and re-present |
+| E05 | User rejects slices | Adjust and re-present |
+| E06 | Slice stuck (max cycles exceeded) | Mark stuck, continue independent slices, report to user |
+| E07 | All slices in batch stuck | Pause, report to user, ask for direction |
+| E08 | Worktree creation fails | Report error, ask to retry or use sequential mode |
+| E09 | Merge conflict unresolvable | Run df-resolve, escalate to user |
+| E10 | `/feature resume` with no active plan | HALT — "No active feature. Use `/feature` to start one" |
+| E11 | Final review CHANGES_REQUESTED | Re-open affected slices, re-run; escalate to user after >2 cycles |
+| E12 | Slice JSON corrupted or unreadable | Report specific file; ask user to fix or reset slice |
+| E13 | df-explain fails | Warn and proceed with degraded analysis |
+| E14 | Integration test persistent failure | Report specific failures; ask user to fix or override |
+| E15 | Build fails at pre-flight | HALT — "Fix build errors before starting a new feature" |
+
+### Guard Rails
+
+These rules are ABSOLUTE — never override:
+
+1. **Never auto-proceed past a STOPPING GATE.** Always wait for user approval.
+2. **Never dispatch two batches simultaneously.**
+3. **Never modify slice MD files during execution.** They are the spec.
+4. **Always update slice JSON immediately** after each agent completes.
+5. **Never skip Phase 6.** Memory sync and cleanup must happen.
+6. **Never remove `.devflow/plans/` folders.** They are audit trails.
+7. **If unsure about scope:** stop and ask. Don't guess.
 
 ### Abort Cleanup Protocol
 
