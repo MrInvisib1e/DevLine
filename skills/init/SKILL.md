@@ -15,6 +15,14 @@ Initialize DevFlow memory for the current repository. Drives interactive stack c
 
 ---
 
+## The Iron Law
+
+```
+NEVER OVERWRITE EXISTING MEMORY WITHOUT EXPLICIT USER CONSENT.
+```
+
+---
+
 ## Flow
 
 ### Step 1 — Scan the repo
@@ -282,6 +290,36 @@ df-init --reset
 ```
 
 Then re-run the full init flow from Step 1.
+
+---
+
+## Guard Rails
+
+1. **Consent before write.** Never write memory without user confirming stack detection.
+2. **Merge, not overwrite.** Re-init merges with existing nodes — never silently deletes them.
+3. **Surface unclassified files.** Never skip the unclassified file batch — they are blind spots.
+4. **Reality check.** If a node is correctly classified and working — leave it. Don't reclassify for the sake of it.
+5. **Decision protocol.** Stack override, custom types, ambiguous files → propose 2-3 options. Let user choose.
+
+## Rationalization Prevention
+
+| Excuse | Reality |
+|--------|---------|
+| "Re-init fixes stale data" | Re-init merges, not overwrites. Confirm with user. |
+| "AI classification good enough" | Always confirm stack detection with developer. |
+| "Skip unclassified, unimportant" | Unclassified = blind spots. Surface them. |
+| "I know what user wants configured" | Propose options. Let them choose. |
+| "Node looks fine, just update it" | Works correctly → leave it. |
+
+## Red Flags — STOP
+
+- Writing memory without user confirmation of stack detection
+- Overwriting existing node classifications without consent
+- Skipping unclassified file batch
+- Deciding custom node types without offering options
+- Reclassifying nodes that are already correct
+
+**Stop. Confirm. Then write.**
 
 ---
 
