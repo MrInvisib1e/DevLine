@@ -57,7 +57,7 @@ cmd_list() {
   fi
 
   local count
-  count=$(jq '.conflicts | length' "$conflicts_file")
+  count=$(jq '.nodes | length' "$conflicts_file")
 
   if [[ "$count" -eq 0 ]]; then
     echo "[DevFlow] No conflicts to resolve."
@@ -65,8 +65,8 @@ cmd_list() {
   fi
 
   echo "[DevFlow] ${count} unresolved conflict(s):"
-  jq -r '.conflicts[] |
-    "  \(.node_id)  [\(.field)]\n    A: \(.branch_a.branch) — \(.branch_a.value)\n    B: \(.branch_b.branch) — \(.branch_b.value)"
+  jq -r '.nodes[] |
+    "  \(.id)  [\(.conflict)]\n    A: \(.branch_a)\n    B: \(.branch_b)"
   ' "$conflicts_file"
 }
 
@@ -94,7 +94,7 @@ cmd_accept() {
 
   # Verify conflict exists
   local conflict_count
-  conflict_count=$(jq --arg id "$node_id" '[.conflicts[] | select(.node_id == $id)] | length' "$conflicts_file")
+  conflict_count=$(jq --arg id "$node_id" '[.nodes[] | select(.id == $id)] | length' "$conflicts_file")
   if [[ "$conflict_count" -eq 0 ]]; then
     err "Node \"${node_id}\" not found in conflicts."
     exit 1
@@ -111,9 +111,9 @@ cmd_accept() {
   # Get the winning value
   local winning_value
   if [[ "$choice" == "a" ]]; then
-    winning_value=$(jq -r --arg id "$node_id" '.conflicts[] | select(.node_id == $id) | .branch_a.value' "$conflicts_file")
+    winning_value=$(jq -r --arg id "$node_id" '.nodes[] | select(.id == $id) | .branch_a' "$conflicts_file")
   else
-    winning_value=$(jq -r --arg id "$node_id" '.conflicts[] | select(.node_id == $id) | .branch_b.value' "$conflicts_file")
+    winning_value=$(jq -r --arg id "$node_id" '.nodes[] | select(.id == $id) | .branch_b' "$conflicts_file")
   fi
 
   # Update nodes.json: set intent and confidence=manual
@@ -126,11 +126,11 @@ cmd_accept() {
   # Remove conflict from graph_conflicts.json
   local updated_conflicts
   updated_conflicts=$(jq --arg id "$node_id" \
-    'del(.conflicts[] | select(.node_id == $id))' \
+    'del(.nodes[] | select(.id == $id))' \
     "$conflicts_file")
 
   local remaining
-  remaining=$(echo "$updated_conflicts" | jq '.conflicts | length')
+  remaining=$(echo "$updated_conflicts" | jq '.nodes | length')
 
   if [[ "$remaining" -eq 0 ]]; then
     rm "$conflicts_file"
