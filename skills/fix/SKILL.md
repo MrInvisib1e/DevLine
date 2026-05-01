@@ -1,3 +1,8 @@
+---
+name: devflow-fix
+description: Use when debugging a bug or test failure in a DevFlow-initialized project, before proposing fixes
+---
+
 # Fix Skill
 
 Trigger: `/fix "<description of what's broken>"`

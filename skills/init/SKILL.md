@@ -1,3 +1,8 @@
+---
+name: devflow-init
+description: Use when initializing DevFlow memory for a new repository or re-classifying files after structural changes
+---
+
 # Skill: init
 
 # DevFlow Init

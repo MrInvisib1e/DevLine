@@ -1,3 +1,8 @@
+---
+name: devflow-mem-sync
+description: Use when graph memory may be stale — before any skill that reads memory.md, nodes.json, or edges.json
+---
+
 # Skill: mem-sync
 
 # DevFlow Memory Sync

@@ -1,3 +1,8 @@
+---
+name: devflow-review
+description: Use when reviewing a diff against project conventions stored in graph memory, before merge or PR
+---
+
 # Skill: review
 
 # DevFlow Review

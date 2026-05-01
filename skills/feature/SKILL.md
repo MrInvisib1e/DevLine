@@ -1,3 +1,8 @@
+---
+name: devflow-feature
+description: Use when building a new feature that requires PRD, domain analysis, vertical slice planning, and agent-driven execution with graph memory
+---
+
 # Skill: feature
 
 # DevFlow Feature Skill
