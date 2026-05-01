@@ -40,14 +40,18 @@ Run these checks before anything else. Do not proceed if any fail.
 **1. df-init check**
 
 ```bash
-which df-init && ls .devflow/memory/ 2>/dev/null
+which df-init && test -d .devflow/
 ```
 
 If `.devflow/` does not exist: HALT — "Run `/init` first to initialize DevFlow."
 
-**2. Memory check**
+**2. Active branch check**
 
-If `.devflow/memory/` is empty or missing: HALT — "Memory is empty. Run `/init` to set up project memory."
+```bash
+test -L .devflow/active && ls .devflow/active/
+```
+
+If `.devflow/active` symlink is missing: HALT — "Run `/init` — no active branch symlink found."
 
 **3. Active plan check** (skip if command is `/feature resume`)
 
@@ -59,7 +63,7 @@ If `.devflow/active` symlink exists: HALT — "A feature is already in progress.
 
 **4. Pre-flight build check**
 
-Read the test command from `.devflow/memory/` (check for `test_cmd` in config or memory files). Run it:
+Read the test command from `.devflow/active/` (check for `test_cmd` in config or branch files). Run it:
 
 ```bash
 <test_cmd>
@@ -121,7 +125,7 @@ Read ONLY the phase file you need right now. Do not pre-load future phases.
 | Code | Trigger | Action |
 |------|---------|--------|
 | E01 | df-init not run — `.devflow/` missing | HALT — "Run `/init` first" |
-| E02 | Memory empty — `.devflow/memory/` missing or empty | HALT — "Run df-init to set up project memory" |
+| E02 | Active branch symlink missing — `.devflow/active` not set | HALT — "Run `/init` — no active branch symlink found" |
 | E03 | Active plan exists on fresh `/feature` start | HALT — "Use `/feature resume` or delete `.devflow/active` to abort" |
 | E04 | User rejects PRD | Revise and re-present |
 | E05 | User rejects slices | Adjust and re-present |
