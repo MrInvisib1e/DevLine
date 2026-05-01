@@ -133,3 +133,47 @@ teardown() {
   [ "$status" -eq 1 ]
   [[ "$output" =~ "empty" ]] || [[ "$output" =~ "unreadable" ]]
 }
+
+# ─── create (worktree) ────────────────────────────────────────────────────────
+
+@test "create: creates a git worktree at .devflow/worktrees/<branch>" {
+  run bash -c "cd '$REPO' && '$DF_WORKSPACE' create feature/test-slice-1"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Worktree created" ]]
+  [ -d "$REPO/.devflow/worktrees/feature/test-slice-1" ]
+}
+
+@test "create: exits 1 if worktree already exists" {
+  bash -c "cd '$REPO' && '$DF_WORKSPACE' create feature/test-slice-1"
+  run bash -c "cd '$REPO' && '$DF_WORKSPACE' create feature/test-slice-1 2>&1"
+  [ "$status" -eq 1 ]
+  [[ "$output" =~ "already exists" ]]
+}
+
+@test "create: exits 1 with usage if no branch arg given" {
+  run bash -c "cd '$REPO' && '$DF_WORKSPACE' create 2>&1"
+  [ "$status" -eq 1 ]
+  [[ "$output" =~ "Usage" ]]
+}
+
+# ─── worktree-remove ──────────────────────────────────────────────────────────
+
+@test "worktree-remove: removes an existing git worktree and branch" {
+  bash -c "cd '$REPO' && '$DF_WORKSPACE' create feature/test-slice-1"
+  run bash -c "cd '$REPO' && '$DF_WORKSPACE' worktree-remove feature/test-slice-1"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Worktree removed" ]]
+  [ ! -d "$REPO/.devflow/worktrees/feature/test-slice-1" ]
+}
+
+@test "worktree-remove: exits 1 if worktree does not exist" {
+  run bash -c "cd '$REPO' && '$DF_WORKSPACE' worktree-remove feature/nonexistent 2>&1"
+  [ "$status" -eq 1 ]
+  [[ "$output" =~ "not found" ]]
+}
+
+@test "worktree-remove: exits 1 with usage if no branch arg given" {
+  run bash -c "cd '$REPO' && '$DF_WORKSPACE' worktree-remove 2>&1"
+  [ "$status" -eq 1 ]
+  [[ "$output" =~ "Usage" ]]
+}
