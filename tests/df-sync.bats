@@ -278,3 +278,11 @@ TSEOF
   [[ "$output" =~ "Not a git repo" ]]
   rm -rf "$tmpdir"
 }
+
+@test "sync: warns when DEVFLOW_AI_MOCK is not set" {
+  _init_repo "$REPO"
+  echo "// change" >> "$REPO/Entities/Comment.cs"
+  (cd "$REPO" && git add . && git commit -m "modify Comment" --quiet)
+  run bash -c "cd '$REPO' && DEVFLOW_AI_MOCK='' '$DF_SYNC' 2>&1"
+  [[ "$output" =~ "AI enrichment is not configured" ]]
+}
