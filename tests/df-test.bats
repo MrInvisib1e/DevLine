@@ -104,3 +104,50 @@ teardown() {
   [ "$status" -eq 1 ]
   [[ "$output" =~ "Not a git repo" ]]
 }
+
+# ─── per-slice JSON format (TDD: these fail until Task 3 implements support) ───
+
+@test "df-test reads per-slice JSON files from .devflow/active/" {
+  # Replace active symlink with a plan folder containing individual slice JSON files
+  rm -rf "$REPO/.devflow/active"
+  mkdir -p "$REPO/.devflow/plans/2026-05-01-feature-comments"
+  cp "$BATS_TEST_DIRNAME/fixtures/sample-slice-1-create-comment.json" \
+     "$REPO/.devflow/plans/2026-05-01-feature-comments/slice-1-create-comment.json"
+  cp "$BATS_TEST_DIRNAME/fixtures/sample-slice-2-delete-comment.json" \
+     "$REPO/.devflow/plans/2026-05-01-feature-comments/slice-2-delete-comment.json"
+  ln -sfn "plans/2026-05-01-feature-comments" "$REPO/.devflow/active"
+
+  # Run df-test for slice 1 — should read slice-1-create-comment.json directly
+  run bash -c "cd '$REPO' && '$DF_TEST' 1 2>&1"
+
+  # Should run the slice and mention it (recognise the per-slice format)
+  [[ "$output" == *"slice-1-create-comment"* ]] || [[ "$output" == *"PASS_SLICE_1"* ]]
+}
+
+@test "df-test reports PASS for slice with passing test_cmd (per-slice format)" {
+  rm -rf "$REPO/.devflow/active"
+  mkdir -p "$REPO/.devflow/plans/2026-05-01-feature-comments"
+  cp "$BATS_TEST_DIRNAME/fixtures/sample-slice-1-create-comment.json" \
+     "$REPO/.devflow/plans/2026-05-01-feature-comments/slice-1-create-comment.json"
+  ln -sfn "plans/2026-05-01-feature-comments" "$REPO/.devflow/active"
+
+  # Run df-test for slice 1 — test_cmd is "echo PASS_SLICE_1", should exit 0 and print PASS
+  run bash -c "cd '$REPO' && '$DF_TEST' 1"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
+}
+
+@test "df-test reports FAIL for slice with failing test_cmd (per-slice format)" {
+  rm -rf "$REPO/.devflow/active"
+  mkdir -p "$REPO/.devflow/plans/2026-05-01-feature-comments"
+  cp "$BATS_TEST_DIRNAME/fixtures/sample-slice-2-delete-comment.json" \
+     "$REPO/.devflow/plans/2026-05-01-feature-comments/slice-2-delete-comment.json"
+  ln -sfn "plans/2026-05-01-feature-comments" "$REPO/.devflow/active"
+
+  # Run df-test for slice 2 — test_cmd is "exit 1", should exit non-zero and print FAIL
+  run bash -c "cd '$REPO' && '$DF_TEST' 2 2>&1"
+
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"FAIL"* ]]
+}
