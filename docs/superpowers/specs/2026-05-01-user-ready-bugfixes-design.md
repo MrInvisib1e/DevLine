@@ -130,7 +130,7 @@ cmd_worktree_create() {
     err "Worktree already exists at $worktree_path"
     exit 1
   fi
-  mkdir -p "${root}/.devflow/worktrees"
+  mkdir -p "$(dirname "$worktree_path")"
   git worktree add "$worktree_path" -b "$branch"
   echo "[DevFlow] Worktree created: $worktree_path (branch: $branch)"
 }
@@ -179,7 +179,12 @@ cmd_worktree_remove() {
 
 Update the usage error message to include `create` and `worktree-remove`.
 
-**Note on naming:** The existing `remove` subcommand removes a service from the registry (`df-workspace remove <workspace> <service>`). The new teardown command is named `worktree-remove` to avoid ambiguity. The skill doc in `phase-3-execution.md` calls `df-workspace remove feature/...` for teardown — update that call to `df-workspace worktree-remove feature/...`.
+**Note on naming:** The existing `remove` subcommand removes a service from the registry (`df-workspace remove <workspace> <service>`). The new teardown command is named `worktree-remove` to avoid ambiguity.
+
+**Stale `df-workspace remove` references to update** (the call `df-workspace remove feature/...` appears in three places — all must be updated to `df-workspace worktree-remove`):
+- `skills/feature/phases/phase-3-execution.md` line 143 — Merge Parallel Slices teardown
+- `skills/feature/SKILL.md` line 192 — Abort Cleanup Protocol step 3
+- `skills/feature/phases/resume.md` line 115 — Abort Cleanup Protocol step 3 (duplicate; will be removed by Fix D)
 
 **Tests:**  
 In `tests/df-workspace.bats`:
@@ -192,24 +197,26 @@ In `tests/df-workspace.bats`:
 
 ## Fix D — `skills/feature/phases/resume.md`: Duplicate content removal
 
-**Severity:** P1 — maintenance trap, two sources of truth for error codes and quick mode table.
+**Severity:** P1 — maintenance trap, four sections duplicated from `SKILL.md`.
 
 **Problem:**  
-`resume.md` contains verbatim duplicates of:
-- The full error reference table (E01–E15)
-- The quick mode command summary table
-
-Both already exist in `skills/feature/SKILL.md`.
+`resume.md` (lines 51–116) contains verbatim duplicates of four sections already in `skills/feature/SKILL.md`:
+- Quick mode command summary table (lines 51–63 of `resume.md`)
+- Error reference table E01–E15 (lines 65–96 of `resume.md`)
+- Guard Rails (lines 98–108 of `resume.md`)
+- Abort Cleanup Protocol (lines 110–116 of `resume.md`)
 
 **Fix:**  
-Remove the duplicate blocks from `resume.md`. Replace with a single reference line at the end of the file:
+Remove all four duplicate blocks from `resume.md` (lines 51–116). Replace with a single reference line:
 
 ```
-> For error codes (E01–E15) and quick mode reference, see `skills/feature/SKILL.md`.
+> For quick mode reference, error codes (E01–E15), guard rails, and abort cleanup protocol, see `skills/feature/SKILL.md`.
 ```
 
 **Tests:**  
-Static assertion: verify `resume.md` does NOT contain `| E01 |` (first row of error table). Pass condition: `grep -c '| E01 |' skills/feature/phases/resume.md` returns `0`.
+Two static assertions:
+- `grep -c '| E01 |' skills/feature/phases/resume.md` returns `0` (error table gone)
+- `grep -c 'Guard Rails' skills/feature/phases/resume.md` returns `0` (guard rails gone)
 
 ---
 
@@ -233,7 +240,7 @@ fi
 This runs once per sync invocation. It does not block the sync — it informs and continues.
 
 **Tests:**  
-In `tests/df-sync.bats`, add a test that runs `df-sync` without `DEVFLOW_AI_MOCK=1` and asserts the output contains `"AI enrichment is not configured"`.
+In `tests/df-sync.bats`, add a test that runs `df-sync` without `DEVFLOW_AI_MOCK=1` and asserts stderr contains `"AI enrichment is not configured"`. Since `err()` writes to `>&2`, the bats test must capture stderr: use `run bash -c "df-sync 2>&1"` or equivalent to merge stderr into the captured output.
 
 ---
 
@@ -245,7 +252,7 @@ In `tests/df-sync.bats`, add a test that runs `df-sync` without `DEVFLOW_AI_MOCK
 `init/SKILL.md` documents the slice JSON schema with field `last_seen_sha`. `df-sync` writes the field as `last_seen`.
 
 **Fix:**  
-In `skills/init/SKILL.md`, find the slice JSON schema example and rename `last_seen_sha` → `last_seen`.
+In `skills/init/SKILL.md`, rename `last_seen_sha` → `last_seen`. There are **two occurrences**: one in the nodes schema example (line 220) and one in the edges schema example (line 233). Both must be updated.
 
 **Tests:**  
 Static assertion: verify `last_seen_sha` does NOT appear in `skills/init/SKILL.md`. Pass: `grep -c 'last_seen_sha' skills/init/SKILL.md` returns `0`.
@@ -266,12 +273,14 @@ Update `cmd_list` in `bin/df-test`:
 2. If yes: iterate over them, extract `name`, `status`, `test_result` from each, and display
 3. If no: fall back to reading legacy `slices.json` (preserves backward compatibility)
 
-Display format (matches existing style):
+Display format for the new per-slice mode:
 ```
 [DevFlow] Active plan: <plan-name>
   slice-1-auth.json       auth setup          pending     —
   slice-2-ui.json         dashboard ui        done        PASS (4/4)
 ```
+
+Note: the legacy `slices.json` fallback currently outputs `"Slice plan: $feature (approved $approved_at)"`. Keep the legacy format unchanged when falling back — do not unify the two display formats. The new per-slice format above is only used when `slice-*.json` files are found.
 
 **Tests:**  
 In `tests/df-test.bats`, add a fixture with two `slice-*.json` files in a temp active dir and assert `df-test --list` outputs both slice names.
@@ -286,9 +295,9 @@ In `tests/df-test.bats`, add a fixture with two `slice-*.json` files in a temp a
 | `bin/df-sync` | Add AI stub warning at top of `cmd_sync` |
 | `bin/df-test` | Update `cmd_list` to read per-slice JSON format |
 | `bin/df-workspace` | Add `create` and `worktree-remove` subcommands for git worktrees |
-| `skills/feature/SKILL.md` | Fix pre-flight path checks 1 and 2 |
+| `skills/feature/SKILL.md` | Fix pre-flight path checks 1 and 2; update Abort Cleanup Protocol `df-workspace remove` → `df-workspace worktree-remove` |
 | `skills/feature/phases/phase-3-execution.md` | Update `df-workspace remove` teardown call to `df-workspace worktree-remove` |
-| `skills/feature/phases/resume.md` | Remove duplicate error table and quick mode table |
+| `skills/feature/phases/resume.md` | Remove all four duplicate sections (quick mode, error table, guard rails, abort cleanup) |
 | `skills/init/SKILL.md` | Rename `last_seen_sha` → `last_seen` in schema example |
 | `tests/df-resolve.bats` | Add real-schema fixture + --list and --accept tests |
 | `tests/df-sync.bats` | Add AI warning assertion |
@@ -311,7 +320,7 @@ In `tests/df-test.bats`, add a fixture with two `slice-*.json` files in a temp a
 2. `df-resolve --accept a <id>` resolves and removes the node from `.nodes`
 3. `skills/feature/SKILL.md` pre-flight checks reference `.devflow/active/` correctly
 4. `df-workspace create <branch>` creates a worktree at `.devflow/worktrees/<branch>`; `df-workspace worktree-remove <branch>` removes it
-5. `resume.md` contains no duplicate error table
+5. `resume.md` contains no duplicate error table, guard rails, or abort cleanup sections
 6. Running `df-sync` without `DEVFLOW_AI_MOCK=1` prints a visible warning
 7. `skills/init/SKILL.md` uses `last_seen` not `last_seen_sha`
 8. `df-test --list` outputs slices from `slice-*.json` files
