@@ -22,6 +22,16 @@ Review a diff against project conventions stored in graph memory. Reads memory b
 
 ---
 
+## The Iron Law
+
+```
+CONVENTIONS, NOT OPINIONS. MEMORY BEFORE DIFF. ALWAYS.
+```
+
+Convention not in memory.md → not a finding. Haven't read memory.md → can't review.
+
+---
+
 ## Pre-Flight
 
 Run these checks before any analysis. Do not proceed if any fail (unless noted).
@@ -196,6 +206,8 @@ If ALL changed nodes are conflicted: print `[DevFlow] All changed nodes have con
 
 ---
 
+**REQUIRED:** Before reporting verdict, follow `skills/verify/SKILL.md`.
+
 ## Output Format
 
 Print the review in this exact structure:
@@ -303,6 +315,35 @@ Degraded mode is a fallback, not a feature. The review is significantly less use
 - **No false precision.** Ambiguous conventions produce NOTE findings, not BLOCKING.
 - **Contested nodes always tagged.** Any finding touching a conflicted node gets `[contested-intent]`.
 - **Large diffs are bounded.** Full analysis on top 30 files by connectivity; summary for the rest.
+- **Reality check.** Convention-compliant code that passes tests — PASS. Don't flag what isn't a convention violation.
+- **Decision protocol.** Ambiguous convention interpretation → propose 2-3 options for user to decide. Never resolve ambiguity unilaterally.
+
+---
+
+## Rationalization Prevention
+
+| Excuse | Reality |
+|--------|---------|
+| "Code ugly, flag it" | Convention-compliant = PASS. Ugly irrelevant. |
+| "I know best practices" | Project conventions override generic practices. |
+| "Memory probably fine, skip check" | Stale memory = wrong conventions = wrong findings. |
+| "Too many files, skip df-explain" | df-explain = impact radius. Skip = blind review. |
+| "No convention here, flag anyway" | No convention = no finding. Note it, don't flag. |
+| "Conflicted node, pick one" | Tag contested-intent. Don't resolve during review. |
+| "While I'm here, flag style issue" | Not a convention violation. Leave it. |
+| "I know what user wants fixed" | Propose options. Let them choose. |
+
+## Red Flags — STOP
+
+- Flagging something not backed by convention in memory.md
+- Skipping df-explain on a changed file
+- Reading diff before reading memory.md
+- Applying generic best practices instead of project conventions
+- Resolving contested-intent instead of tagging it
+- Claiming PASS without checking impact radius
+- Flagging code that works and follows conventions
+
+**Stop. Re-read guard rails. Follow the process.**
 
 ---
 
