@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "nodes": [
+    {
+      "id": "entity:Entities.Commentcs",
+      "name": "Comment",
+      "type": "entity",
+      "file": "Entities/Comment.cs",
+      "intent": "Soft-deletable content unit attached to a story",
+      "confidence": "ai",
+      "last_seen": "6f176327582df37e4fdd7f70126e58181e8f440a"
+    },
+    {
+      "id": "service:Services.CommentServicecs",
+      "name": "CommentService",
+      "type": "service",
+      "file": "Services/CommentService.cs",
+      "intent": "Owns all comment mutations",
+      "confidence": "ai",
+      "last_seen": "6f176327582df37e4fdd7f70126e58181e8f440a"
+    },
+    {
+      "id": "contract:Contracts.CommentCreatedEventcs",
+      "name": "CommentCreatedEvent",
+      "type": "contract",
+      "file": "Contracts/CommentCreatedEvent.cs",
+      "intent": "Event emitted when a new comment is created",
+      "confidence": "ai",
+      "last_seen": "6f176327582df37e4fdd7f70126e58181e8f440a"
+    },
+    {
+      "id": "route:src.routes.+pagesvelte",
+      "name": "+page",
+      "type": "route",
+      "file": "src/routes/+page.svelte",
+      "intent": "Home page route",
+      "confidence": "ai",
+      "last_seen": "6f176327582df37e4fdd7f70126e58181e8f440a"
+    },
+    {
+      "id": "unknown:src.lib.utils.slugts",
+      "name": "slug",
+      "type": "unknown",
+      "file": "src/lib/utils/slug.ts",
+      "intent": "URL slug utility",
+      "confidence": "ai",
+      "last_seen": "6f176327582df37e4fdd7f70126e58181e8f440a"
+    }
+  ]
+}

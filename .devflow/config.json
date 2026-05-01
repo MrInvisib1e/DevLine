@@ -1,0 +1,30 @@
+{
+  "service": "DevFlow",
+  "workspace": null,
+  "stack": {
+    "runtime": "nodejs",
+    "frontend": null,
+    "test_cmd": "bats tests/"
+  },
+  "last_synced": "6f176327582df37e4fdd7f70126e58181e8f440a",
+  "schema_version": 1,
+  "node_types": {
+    "custom": []
+  },
+  "edge_staleness_threshold": 10,
+  "edge_rel_types": [
+    "depends_on",
+    "uses",
+    "persisted_in",
+    "implements",
+    "emits",
+    "handles"
+  ],
+  "graph_limits": {
+    "max_nodes": 500,
+    "prune_min_age_commits": 5,
+    "max_files_per_sync": 200
+  },
+  "classifiers": [],
+  "dirty": false
+}

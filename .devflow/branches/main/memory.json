@@ -1,0 +1,11 @@
+{
+  "stack": {
+    "runtime": "nodejs",
+    "frontend": null,
+    "test_cmd": "bats tests/",
+    "key_dependencies": []
+  },
+  "architecture": "DevFlow skill library",
+  "conventions": "",
+  "architecture_last_synced": "6f176327582df37e4fdd7f70126e58181e8f440a"
+}
