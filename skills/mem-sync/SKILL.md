@@ -11,6 +11,12 @@ Verify graph memory is current before the session begins. Invoked automatically 
 
 **When to invoke:** Before any skill that reads `.devflow/active/memory.md`, `nodes.json`, or `edges.json`.
 
+## The Iron Law
+
+```
+NEVER SILENTLY CONTINUE WITH STALE MEMORY.
+```
+
 ---
 
 ## Prerequisites
@@ -103,3 +109,29 @@ If Step 3 fails:
 - If `df-sync` is not on PATH, tell the developer to install DevFlow.
 - The post-commit hook calls `df-sync` directly; `mem-sync` is for AI agents to call before reading memory.
 - In CI mode (no `.devflow/` directory), `df-sync` exits 0 silently. This skill will see a missing `config.json` and should treat it as "nothing to do" — exit success.
+
+## Guard Rails
+
+1. **Staleness check first.** Check `last_synced` vs HEAD before reading any memory file.
+2. **Run df-sync when stale.** Don't proceed with stale memory.
+3. **Verify after sync.** Confirm `dirty: false` and `last_synced` = HEAD after df-sync.
+4. **Reality check.** Memory is current (`last_synced` = HEAD, `dirty: false`) → no action needed. Don't sync unnecessarily.
+5. **Decision protocol.** df-sync fails → propose 2-3 options (retry, proceed degraded, halt).
+
+## Rationalization Prevention
+
+| Excuse | Reality |
+|--------|---------|
+| "Memory probably fine" | Check last_synced vs HEAD. Probably ≠ verified. |
+| "df-sync slow, skip it" | Stale memory = wrong context = wrong decisions. |
+| "Sync after" | After is too late. Sync before reading. |
+| "Fresh enough" | Fresh enough ≠ current. Check. |
+
+## Red Flags — STOP
+
+- Reading memory.md without staleness check
+- Skipping df-sync when dirty=true
+- Skipping df-sync when last_synced ≠ HEAD
+- Proceeding when df-sync fails without offering options
+
+**Stop. Check staleness. Then read.**
