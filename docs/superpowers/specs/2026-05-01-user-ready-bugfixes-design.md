@@ -96,34 +96,97 @@ Static assertion test (skill-lint): verify the strings `.devflow/memory/` do NOT
 
 ---
 
-## Fix C — `skills/feature/phases/phase-3-execution.md`: Non-existent df-workspace subcommand
+## Fix C — `bin/df-workspace`: Add `create` and `remove` subcommands for git worktrees
 
 **Severity:** P1 — parallel worktree setup is completely broken.
 
 **Problem:**  
-Phase 3 calls:
+`phase-3-execution.md` correctly calls:
 ```bash
 df-workspace create feature/<feature-slug>-slice-N
 df-workspace remove feature/<feature-slug>-slice-N
 ```
-`df-workspace` only implements `add / remove / list / read` for a workspace registry at `~/.devflow/workspaces/`. It has no `create` subcommand and does not manage git worktrees at all.
+But `df-workspace` only implements `add / remove / list / read` for a workspace registry at `~/.devflow/workspaces/`. It has no `create` or `remove` subcommand that manages git worktrees.
+
+**Rule motivation:** Git operations must stay in deterministic shell scripts — not AI-driven skills — for auditability and predictability.
 
 **Fix:**  
-Replace both calls in `phase-3-execution.md` with raw git commands:
+Add two new subcommands to `bin/df-workspace`:
 
-Setup (Step 1):
-```bash
-git worktree add .devflow/worktrees/feature/<feature-slug>-slice-N -b feature/<feature-slug>-slice-N
-```
-Write the path `.devflow/worktrees/feature/<feature-slug>-slice-N` to `slice-N.json` → `worktree_path`.
+**`create <branch-name>`**  
+Creates a git worktree at `.devflow/worktrees/<branch-name>` and checks out a new branch `<branch-name>`. Must be run from inside a git repository.
 
-Teardown (Merge Parallel Slices section):
 ```bash
-git worktree remove .devflow/worktrees/feature/<feature-slug>-slice-N --force
+cmd_worktree_create() {
+  local branch="$1"
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    err "Not a git repo."
+    exit 1
+  fi
+  local root
+  root="$(git rev-parse --show-toplevel)"
+  local worktree_path="${root}/.devflow/worktrees/${branch}"
+  if [[ -d "$worktree_path" ]]; then
+    err "Worktree already exists at $worktree_path"
+    exit 1
+  fi
+  mkdir -p "${root}/.devflow/worktrees"
+  git worktree add "$worktree_path" -b "$branch"
+  echo "[DevFlow] Worktree created: $worktree_path (branch: $branch)"
+}
 ```
+
+**`worktree-remove <branch-name>`**  
+Removes the git worktree at `.devflow/worktrees/<branch-name>` and deletes the branch.
+
+```bash
+cmd_worktree_remove() {
+  local branch="$1"
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    err "Not a git repo."
+    exit 1
+  fi
+  local root
+  root="$(git rev-parse --show-toplevel)"
+  local worktree_path="${root}/.devflow/worktrees/${branch}"
+  if [[ ! -d "$worktree_path" ]]; then
+    err "Worktree not found: $worktree_path"
+    exit 1
+  fi
+  git worktree remove "$worktree_path" --force
+  git branch -D "$branch" 2>/dev/null || true
+  echo "[DevFlow] Worktree removed: $worktree_path"
+}
+```
+
+**Dispatch additions** (in the `case` block):
+```bash
+  create)
+    if [[ $# -lt 2 ]]; then
+      err "Usage: df-workspace create <branch-name>"
+      exit 1
+    fi
+    cmd_worktree_create "$2"
+    ;;
+  worktree-remove)
+    if [[ $# -lt 2 ]]; then
+      err "Usage: df-workspace worktree-remove <branch-name>"
+      exit 1
+    fi
+    cmd_worktree_remove "$2"
+    ;;
+```
+
+Update the usage error message to include `create` and `worktree-remove`.
+
+**Note on naming:** The existing `remove` subcommand removes a service from the registry (`df-workspace remove <workspace> <service>`). The new teardown command is named `worktree-remove` to avoid ambiguity. The skill doc in `phase-3-execution.md` calls `df-workspace remove feature/...` for teardown — update that call to `df-workspace worktree-remove feature/...`.
 
 **Tests:**  
-Static assertion: verify the string `df-workspace create` does NOT appear in `skills/feature/phases/phase-3-execution.md`. Pass condition: `grep -c 'df-workspace create' skills/feature/phases/phase-3-execution.md` returns `0`.
+In `tests/df-workspace.bats`:
+- `create` in a temp git repo: assert worktree directory is created, branch exists
+- `create` again with same name: assert error "Worktree already exists"
+- `worktree-remove` after create: assert directory is gone, branch is deleted
+- `worktree-remove` on non-existent branch: assert error "Worktree not found"
 
 ---
 
@@ -219,16 +282,18 @@ In `tests/df-test.bats`, add a fixture with two `slice-*.json` files in a temp a
 
 | File | Change |
 |------|--------|
-| `bin/df-resolve` | Fix all `.conflicts` → `.nodes` jq references |
+| `bin/df-resolve` | Fix all `.conflicts` → `.nodes` jq references, `.node_id` → `.id`, `.branch_a.value` → `.branch_a` |
 | `bin/df-sync` | Add AI stub warning at top of `cmd_sync` |
 | `bin/df-test` | Update `cmd_list` to read per-slice JSON format |
+| `bin/df-workspace` | Add `create` and `worktree-remove` subcommands for git worktrees |
 | `skills/feature/SKILL.md` | Fix pre-flight path checks 1 and 2 |
-| `skills/feature/phases/phase-3-execution.md` | Replace `df-workspace create/remove` with `git worktree` |
+| `skills/feature/phases/phase-3-execution.md` | Update `df-workspace remove` teardown call to `df-workspace worktree-remove` |
 | `skills/feature/phases/resume.md` | Remove duplicate error table and quick mode table |
 | `skills/init/SKILL.md` | Rename `last_seen_sha` → `last_seen` in schema example |
 | `tests/df-resolve.bats` | Add real-schema fixture + --list and --accept tests |
 | `tests/df-sync.bats` | Add AI warning assertion |
 | `tests/df-test.bats` | Add per-slice --list fixture + assertion |
+| `tests/df-workspace.bats` | Add create + worktree-remove tests |
 
 ---
 
@@ -236,8 +301,7 @@ In `tests/df-test.bats`, add a fixture with two `slice-*.json` files in a temp a
 
 - Real Claude API implementation in `ai_batch` (intentionally deferred)
 - `df-explain --depth` BFS multi-hop (known stub, not user-blocking)
-- `df-workspace` subcommand refactor (skill doc fix is sufficient)
-- Any new features
+- Any new features beyond the `create`/`worktree-remove` subcommands
 
 ---
 
@@ -246,7 +310,7 @@ In `tests/df-test.bats`, add a fixture with two `slice-*.json` files in a temp a
 1. `df-resolve --list` outputs correct conflict count from a real `graph_conflicts.json`
 2. `df-resolve --accept a <id>` resolves and removes the node from `.nodes`
 3. `skills/feature/SKILL.md` pre-flight checks reference `.devflow/active/` correctly
-4. `phase-3-execution.md` uses `git worktree` commands with no mention of `df-workspace create`
+4. `df-workspace create <branch>` creates a worktree at `.devflow/worktrees/<branch>`; `df-workspace worktree-remove <branch>` removes it
 5. `resume.md` contains no duplicate error table
 6. Running `df-sync` without `DEVFLOW_AI_MOCK=1` prints a visible warning
 7. `skills/init/SKILL.md` uses `last_seen` not `last_seen_sha`
