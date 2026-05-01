@@ -70,11 +70,34 @@ cmd_list() {
 
   local devflow_dir
   devflow_dir="$(git rev-parse --show-toplevel)/.devflow"
-  local slices_file="${devflow_dir}/active/slices.json"
 
+  # Try per-slice format first
+  local plan_dir
+  plan_dir=$(readlink -f "${devflow_dir}/active" 2>/dev/null)
+  if [[ -n "$plan_dir" ]]; then
+    local slice_files=("${plan_dir}"/plans/*/slice-*.json)
+    if [[ -e "${slice_files[0]}" ]]; then
+      # Extract plan name from directory
+      local plan_name
+      plan_name=$(basename "$(dirname "${slice_files[0]}")")
+      echo "[DevFlow] Active plan: ${plan_name}"
+      for f in "${slice_files[@]}"; do
+        local name status test_result
+        name=$(jq -r '.name // .id // "unknown"' "$f")
+        status=$(jq -r '.status // "pending"' "$f")
+        test_result=$(jq -r '.test_result // "-"' "$f")
+        printf "  %-40s %-15s %s\n" "$(basename "$f")" "$status" "$test_result"
+      done
+      return 0
+    fi
+  fi
+
+  # Legacy fallback: slices.json
+  local slices_file="${devflow_dir}/active/slices.json"
   if [[ ! -f "$slices_file" ]]; then
-    err "No slice plan found. Run the feature skill to create one."
-    exit 1
+    err "No active slice plan found."
+    err "Run \`/feature\` to start a new feature."
+    return 1
   fi
 
   local feature approved_at
