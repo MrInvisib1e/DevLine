@@ -696,6 +696,12 @@ cmd_sync() {
   [[ ! -d "$DEVFLOW_DIR" ]] && exit 0  # CI mode
 
   acquire_lock
+
+  if [[ "${DEVFLOW_AI_MOCK:-}" != "1" ]]; then
+    err "Note: AI enrichment is not configured. Graph nodes will have no intent annotations."
+    err "Set DEVFLOW_AI_MOCK=1 with DEVFLOW_AI_MOCK_FILE=<path> for testing."
+  fi
+
   _do_sync "$force" "$all_flag"
 }
 
