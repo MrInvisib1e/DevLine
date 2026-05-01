@@ -67,7 +67,7 @@ teardown() {
 
 @test "accept: removes resolved conflict from graph_conflicts.json" {
   bash -c "cd '$REPO' && '$DF_RESOLVE' --accept a 'entity:Entities.Comment'"
-  run jq '[.conflicts[] | select(.node_id=="entity:Entities.Comment")] | length' "$REPO/.devflow/branches/main/graph_conflicts.json"
+  run jq '[.nodes[] | select(.id=="entity:Entities.Comment")] | length' "$REPO/.devflow/branches/main/graph_conflicts.json"
   [ "$output" = "0" ]
 }
 
