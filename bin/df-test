@@ -29,6 +29,35 @@ atomic_write() {
   mv "$tmp" "$file"
 }
 
+# ─── per-slice JSON helpers ───────────────────────────────────────────────────
+
+# Find slice file by ID in the given plan directory
+find_slice_file() {
+  local plan_dir="$1" slice_id="$2"
+  local f
+  for f in "$plan_dir"/*slice-*.json; do
+    [[ -f "$f" ]] || continue
+    local fid
+    fid=$(jq -r '.id' "$f" 2>/dev/null) || continue
+    if [[ "$fid" == "$slice_id" ]]; then
+      echo "$f"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Write status and test_result back to a per-slice JSON file
+write_slice_result() {
+  local slice_file="$1" new_status="$2" test_result="$3"
+  local tmpfile
+  tmpfile=$(mktemp)
+  jq --arg status "$new_status" --arg result "$test_result" \
+    '.status = $status | .test_result = $result' \
+    "$slice_file" > "$tmpfile"
+  mv "$tmpfile" "$slice_file"
+}
+
 # ─── commands ─────────────────────────────────────────────────────────────────
 
 cmd_version() {
@@ -70,7 +99,81 @@ cmd_run() {
 
   local devflow_dir
   devflow_dir="$(git rev-parse --show-toplevel)/.devflow"
-  local slices_file="${devflow_dir}/active/slices.json"
+  local active_dir="${devflow_dir}/active"
+  local slices_file="${active_dir}/slices.json"
+
+  # ── Per-slice JSON mode detection ──────────────────────────────────────────
+  # Check if .devflow/active exists and contains *slice-*.json files
+  if [[ -d "$active_dir" ]] || [[ -L "$active_dir" ]]; then
+    # Collect matching slice files
+    local slice_files=()
+    local f
+    for f in "$active_dir"/*slice-*.json; do
+      [[ -f "$f" ]] && slice_files+=("$f")
+    done
+
+    if [[ "${#slice_files[@]}" -gt 0 ]]; then
+      # ── Per-slice mode ──────────────────────────────────────────────────────
+
+      # Check for DEVFLOW_TEST_CMD override
+      if [[ -n "${DEVFLOW_TEST_CMD:-}" ]]; then
+        echo "[DevFlow] Running slice ${slice_id} (DEVFLOW_TEST_CMD override)"
+        set +e
+        # shellcheck disable=SC2294
+        ( eval "$DEVFLOW_TEST_CMD" )
+        local exit_code=$?
+        set -e
+        if [[ "$exit_code" -eq 0 ]]; then
+          echo "[DevFlow] PASS"
+        else
+          echo "[DevFlow] FAIL (exit ${exit_code})"
+        fi
+        exit "$exit_code"
+      fi
+
+      # Find the slice file matching the given ID
+      local slice_file
+      if ! slice_file=$(find_slice_file "$active_dir" "$slice_id"); then
+        err "Slice ${slice_id} not found in per-slice JSON files."
+        exit 1
+      fi
+
+      local slice_basename
+      slice_basename=$(basename "$slice_file" .json)
+
+      local slice_name test_cmd
+      slice_name=$(jq -r '.name' "$slice_file")
+      test_cmd=$(jq -r '.test_cmd // empty' "$slice_file")
+
+      if [[ -z "$test_cmd" ]]; then
+        err "Slice ${slice_id} has no test_cmd defined."
+        exit 1
+      fi
+
+      echo "[DevFlow] Running ${slice_basename}: ${slice_name}"
+
+      set +e
+      # shellcheck disable=SC2294
+      ( eval "$test_cmd" )
+      local exit_code=$?
+      set -e
+
+      if [[ "$exit_code" -eq 0 ]]; then
+        echo "[DevFlow] PASS"
+        write_slice_result "$slice_file" "done" "PASS"
+      else
+        echo "[DevFlow] FAIL (exit ${exit_code})"
+        write_slice_result "$slice_file" "failed" "FAIL"
+      fi
+
+      exit "$exit_code"
+    else
+      # No slice-*.json files found — fall back to legacy slices.json
+      echo "[WARN] No slice-*.json files found in .devflow/active/. Falling back to legacy slices.json format (deprecated)." >&2
+    fi
+  fi
+
+  # ── Legacy slices.json mode ─────────────────────────────────────────────────
 
   # Check for DEVFLOW_TEST_CMD override first — can run even without slices.json
   if [[ -n "${DEVFLOW_TEST_CMD:-}" ]]; then
