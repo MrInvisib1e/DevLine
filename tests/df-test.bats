@@ -156,3 +156,20 @@ setup_per_slice_plan() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"FAIL"* ]]
 }
+
+@test "list: shows per-slice plan when slice-*.json files exist" {
+  # Set up per-slice plan directory under .devflow/branches/main (which .devflow/active points to)
+  mkdir -p "$REPO/.devflow/branches/main/plans/my-feature"
+
+  # Create two slice files
+  cat > "$REPO/.devflow/branches/main/plans/my-feature/slice-1-auth.json" <<'EOF'
+{"id": "slice-1-auth", "name": "auth setup", "status": "pending", "test_result": null, "test_cmd": "echo ok"}
+EOF
+  cat > "$REPO/.devflow/branches/main/plans/my-feature/slice-2-api.json" <<'EOF'
+{"id": "slice-2-api", "name": "api routes", "status": "done", "test_result": "passed", "test_cmd": "echo ok"}
+EOF
+
+  run bash -c "cd '$REPO' && '$DF_TEST' --list"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Active plan: my-feature" ]]
+}
