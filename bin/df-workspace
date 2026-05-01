@@ -18,6 +18,13 @@ check_prereqs() {
   fi
 }
 
+check_git() {
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    err "Not a git repo."
+    exit 1
+  fi
+}
+
 atomic_write() {
   local file="$1" content="$2"
   local tmp="${file}.tmp"
@@ -134,6 +141,42 @@ cmd_read() {
   cat "$target_file"
 }
 
+cmd_worktree_create() {
+  local branch="$1"
+  check_git
+
+  local root
+  root="$(git rev-parse --show-toplevel)"
+  local worktree_path="${root}/.devflow/worktrees/${branch}"
+
+  if [[ -d "$worktree_path" ]]; then
+    err "Worktree for branch \"${branch}\" already exists at: ${worktree_path}"
+    exit 1
+  fi
+
+  mkdir -p "$(dirname "$worktree_path")"
+  git worktree add "$worktree_path" -b "$branch"
+  echo "[DevFlow] Worktree created at: ${worktree_path}"
+}
+
+cmd_worktree_remove() {
+  local branch="$1"
+  check_git
+
+  local root
+  root="$(git rev-parse --show-toplevel)"
+  local worktree_path="${root}/.devflow/worktrees/${branch}"
+
+  if [[ ! -d "$worktree_path" ]]; then
+    err "Worktree for branch \"${branch}\" not found at: ${worktree_path}"
+    exit 1
+  fi
+
+  git worktree remove "$worktree_path" --force
+  git branch -D "$branch" || true
+  echo "[DevFlow] Worktree removed: ${worktree_path}"
+}
+
 # ─── dispatch ─────────────────────────────────────────────────────────────────
 
 case "${1:-}" in
@@ -162,8 +205,22 @@ case "${1:-}" in
     fi
     cmd_read "$2" "$3" "$4"
     ;;
+  create)
+    if [[ $# -lt 2 ]]; then
+      err "Usage: df-workspace create <branch>"
+      exit 1
+    fi
+    cmd_worktree_create "$2"
+    ;;
+  worktree-remove)
+    if [[ $# -lt 2 ]]; then
+      err "Usage: df-workspace worktree-remove <branch>"
+      exit 1
+    fi
+    cmd_worktree_remove "$2"
+    ;;
   '')
-    err "Usage: df-workspace <add|remove|list|read> [args] | --version"
+    err "Usage: df-workspace <add|remove|list|read|create|worktree-remove> [args] | --version"
     exit 1
     ;;
   *)
