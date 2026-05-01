@@ -1,16 +1,18 @@
 {
-  "conflicts": [
+  "generated_at": "2026-01-01T00:00:00Z",
+  "nodes": [
     {
-      "node_id": "entity:Entities.Comment",
-      "field": "intent",
-      "branch_a": { "branch": "main", "value": "Soft-deletable content unit" },
-      "branch_b": { "branch": "feature/comments", "value": "Append-only comment log" }
+      "id": "entity:Entities.Comment",
+      "conflict": "intent",
+      "branch_a": "Soft-deletable content unit",
+      "branch_b": "Append-only comment log"
     },
     {
-      "node_id": "service:Services.CommentService",
-      "field": "intent",
-      "branch_a": { "branch": "main", "value": "Owns all comment mutations" },
-      "branch_b": { "branch": "feature/comments", "value": "Read-only comment query service" }
+      "id": "service:Services.CommentService",
+      "conflict": "intent",
+      "branch_a": "Owns all comment mutations",
+      "branch_b": "Read-only comment query service"
     }
-  ]
+  ],
+  "edges": []
 }
