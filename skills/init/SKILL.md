@@ -217,7 +217,7 @@ Build the patch JSON to pipe into `df-init --write-memory`:
         "file": "<relative-file-path>",
         "intent": "<from call 1>",
         "confidence": "<ai or manual>",
-        "last_seen_sha": "<head_sha>"
+        "last_seen": "<head_sha>"
       }
     ]
   },
@@ -229,7 +229,7 @@ Build the patch JSON to pipe into `df-init --write-memory`:
         "to": "<node id>",
         "rel": "<rel-type>",
         "intent": "<from call 1>",
-        "last_seen_sha": "<head_sha>"
+        "last_seen": "<head_sha>"
       }
     ]
   }
