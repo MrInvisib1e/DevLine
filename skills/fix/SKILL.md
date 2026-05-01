@@ -13,6 +13,14 @@ Examples:
 
 ---
 
+## The Iron Law
+
+```
+HYPOTHESIS BEFORE CODE. ALWAYS.
+```
+
+---
+
 ## Pre-flight Checks
 
 Run BEFORE any reasoning or file reading:
@@ -177,6 +185,8 @@ Files changed: <list>
 Suggested commit: fix: <short description>
 ```
 
+**REQUIRED:** Before claiming fix is done, follow `skills/verify/SKILL.md`.
+
 ---
 
 ## Error Reference
@@ -193,9 +203,41 @@ Suggested commit: fix: <short description>
 
 ---
 
+## Guard Rails
+
+1. **Hypothesis before code.** State hypothesis before reading any source file.
+2. **Max 3 cycles.** Never start a 4th cycle. Surface findings to user.
+3. **Scope.** Fix only what the hypothesis covers. Don't fix adjacent code.
+4. **Reality check.** If it works and hypothesis explains it — done. Don't look for more problems.
+5. **Decision protocol.** Multiple node matches, exhausted cycles → propose 2-3 options. Let user choose.
+
+---
+
 ## Notes
 
 - Never read more files than the hypothesis requires
 - Never modify files outside the hypothesis scope without stating why
 - Hypothesis must be stated before reading any source file — this is a discipline, not a suggestion
 - The fix is not done until the test passes — a hypothesis without a passing test is not a fix
+
+## Rationalization Prevention
+
+| Excuse | Reality |
+|--------|---------|
+| "Fix obvious, skip hypothesis" | Obvious fixes mask root causes. Hypothesize first. |
+| "Know which file to change" | Know the file ≠ know the cause. State hypothesis. |
+| "3 cycles too many, just ship" | 3 = max, not target. Get it right. |
+| "Tests pass, fix works" | Tests passing ≠ root cause fixed. Verify hypothesis. |
+| "Memory probably current" | Run staleness check. Probably ≠ verified. |
+| "While I'm here, fix this too" | Out of scope. Leave it. |
+| "I know what user wants fixed" | Propose options. Let them choose. |
+
+## Red Flags — STOP
+
+- Opening source files before stating hypothesis
+- Skipping df-explain "I know the codebase"
+- Fix applied without running test command
+- Starting cycle 4
+- Fixing adjacent code that wasn't broken
+
+**Stop. State hypothesis. Then read code.**
