@@ -50,7 +50,7 @@ Read the test command from `.devflow/memory/` (check for `test_cmd` in config or
 <test_cmd>
 ```
 
-- If build fails (compile error): HALT — "Fix build errors before starting a new feature." (error E14)
+- If build fails (compile error): HALT — "Fix build errors before starting a new feature." (error E15)
 - If tests fail (runtime failures, not compile): show failures, ask: "Fix these first, or proceed with this baseline? (failures will be tracked)" If proceeding: record failures in `plan.md` under `## Baseline Health`.
 
 ---
@@ -820,6 +820,6 @@ These rules are ABSOLUTE — never override:
 On any unrecoverable error or user abort:
 1. Update `plan.md` status → `ABORTED`
 2. Remove `.devflow/active` symlink
-3. Clean up worktrees (`df-workspace destroy` for each active worktree)
+3. Clean up worktrees (`df-workspace remove` for each active worktree)
 4. Keep plan folder as audit trail
 5. Keep `feature/<slug>` branch (for manual recovery)
