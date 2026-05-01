@@ -140,7 +140,7 @@ After all slices in a parallel batch complete (done or stuck):
 2. If merge conflicts: run `df-resolve` and ask user to resolve, then retry merge
 3. Clean up worktrees:
    ```bash
-   df-workspace remove feature/<feature-slug>-slice-N
+   df-workspace worktree-remove feature/<feature-slug>-slice-N
    ```
 
 #### Stuck Slice Handling

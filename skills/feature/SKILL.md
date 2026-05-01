@@ -189,6 +189,6 @@ These rules are ABSOLUTE — never override:
 On any unrecoverable error or user abort:
 1. Update `plan.md` status → `ABORTED`
 2. Remove `.devflow/active` symlink
-3. Clean up worktrees (`df-workspace remove` for each active worktree)
+3. Clean up worktrees (`df-workspace worktree-remove` for each active worktree)
 4. Keep plan folder as audit trail
 5. Keep `feature/<slug>` branch (for manual recovery)
