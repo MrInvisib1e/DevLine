@@ -153,7 +153,7 @@ Read up to 5 key files from the reference feature:
 - Frontend component
 - Test file
 
-Extract patterns and write them to `plan.md` under `## Pattern Library`:
+Extract patterns. They will be written to `plan.md` in Phase 2 under `## Pattern Library`. For now, hold them in session context.
 
 ````markdown
 ## Pattern Library
@@ -184,7 +184,9 @@ Extract patterns and write them to `plan.md` under `## Pattern Library`:
 ```
 ````
 
-### Step 4: Write Domain Analysis to plan.md
+### Step 4: Capture Domain Analysis (Written to plan.md in Phase 2)
+
+Assemble this section. It will be written to `plan.md` when the plan folder is created in Phase 2.
 
 ```markdown
 ## Domain Analysis
@@ -225,6 +227,7 @@ A vertical slice is thin, user-visible functionality cutting through ALL require
 2. Map each criterion to a user-visible slice (usually 1 criterion = 1 slice)
 3. Check: can complex criteria be split into smaller slices? (e.g., "create comment" before "edit comment")
 4. Define dependencies: which slices need other slices to be complete first?
+5. **Quick mode check (do this BEFORE creating any files):** If QUICK_MODE=true and analysis reveals >3 slices are genuinely needed, warn the user NOW: "This feature may require more than 3 slices — quick mode auto-generates 1-3. Continue with quick mode (auto-slim to 3 most important) or switch to full mode?" Wait for answer before proceeding.
 
 ### Slice Sizing Checklist
 
@@ -281,8 +284,12 @@ Batch 2 (sequential): slice-3-delete-comment
 4. For each slice, create TWO files: `slice-N-<slug>.json` and `slice-N-<slug>.md`
 5. Create `.devflow/active` symlink:
 
+Run from the repo root:
+
 ```bash
-ln -sf ".devflow/plans/YYYY-MM-DD-<slug>" ".devflow/active"
+# Run from repo root
+ln -sfn "plans/YYYY-MM-DD-<slug>" ".devflow/active"
+# The target is relative to the symlink's parent directory (.devflow/)
 ```
 
 6. Create git branch:
@@ -426,7 +433,7 @@ Present the full slice plan:
 4. Re-present ONLY the changed slices
 5. Do NOT touch already-approved slices
 
-**Quick mode override:** Auto-generate 1-3 slices without full decomposition. Still requires approval gate. If analysis reveals >3 slices are genuinely needed: warn "This feature may be too large for quick mode. Continue anyway or switch to full mode?"
+**Quick mode:** Auto-generate 1-3 slices without full decomposition. Still requires approval gate. (>3 slice warning was already shown during decomposition step 5.)
 
 ---
 
