@@ -23,6 +23,16 @@ Orchestrate a feature from idea to merged code. Drives PRD interrogation, domain
 
 ---
 
+## The Iron Law
+
+```
+NO CODE WITHOUT APPROVED SLICES. NO MERGE WITHOUT PASSING REVIEW.
+```
+
+Haven't passed a stopping gate → cannot proceed. Period.
+
+---
+
 ## Pre-Flight
 
 Run these checks before anything else. Do not proceed if any fail.
@@ -86,6 +96,8 @@ Read ONLY the phase file you need right now. Do not pre-load future phases.
 | 6: Completion | `skills/feature/phases/phase-6-completion.md` | After review approved |
 | Resume | `skills/feature/phases/resume.md` | On `/feature resume` |
 
+**REQUIRED:** Before marking any slice done or claiming feature complete, follow `skills/verify/SKILL.md`.
+
 ---
 
 ## Quick Mode Summary
@@ -137,6 +149,38 @@ These rules are ABSOLUTE — never override:
 5. **Never skip Phase 6.** Memory sync and cleanup must happen.
 6. **Never remove `.devflow/plans/` folders.** They are audit trails.
 7. **If unsure about scope:** stop and ask. Don't guess.
+8. **Reality check.** Code that works, follows conventions, and passes tests — done. Don't invent problems. Don't refactor what isn't broken.
+9. **Decision protocol.** When input is needed, propose 2-3 concrete options with trade-offs. Never decide for the user. Never ask open-ended "what do you want?" — give choices.
+
+---
+
+## Rationalization Prevention
+
+| Excuse | Reality |
+|--------|---------|
+| "User impatient, skip gate" | Skip gate → rework. Run it. |
+| "PRD obvious, no need to ask" | Obvious PRDs have hidden assumptions. Ask. |
+| "Just one slice, skip integration" | Single slices still need Phase 5 review. |
+| "Minor issues, ship anyway" | Minor issues compound. Fix them. |
+| "Tests pass, skip review agent" | Tests = behavior. Review = architecture. Both. |
+| "Fix it next feature" | Next feature won't fix this one. |
+| "Quick mode = less rigor" | Fewer questions. Not fewer checks. |
+| "While I'm here, fix this too" | Out of scope. Works. Leave it. |
+| "I know what user wants" | Propose options. Let them choose. |
+
+## Red Flags — STOP
+
+- Code before slice approval
+- "Gate doesn't apply here"
+- Skipping a phase because "obvious"
+- Next batch dispatched before current batch review done
+- Modifying slice MD during execution
+- About to merge without Phase 5
+- "Quick mode means skip this"
+- Fixing adjacent code that wasn't broken
+- Deciding for user without offering options
+
+**Stop. Re-read guard rails. Follow the process.**
 
 ---
 
