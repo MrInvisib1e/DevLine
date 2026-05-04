@@ -53,7 +53,32 @@ bin/
 
 ## Installation
 
-### OpenCode (recommended)
+### Claude Code
+
+```bash
+# From a local clone
+git clone https://github.com/<user>/Development-Flow.git ~/.devflow
+/plugin install ~/.devflow
+```
+
+Then add `~/.devflow/bin` to your PATH (skills need the shell scripts):
+
+```bash
+# Add to ~/.zshrc or ~/.bashrc
+export PATH="$HOME/.devflow/bin:$PATH"
+```
+
+The plugin registers all 8 skills automatically and injects the DevFlow bootstrap at session start. No manual `CLAUDE.md` edits needed.
+
+**Verify:**
+```
+/plugin list   # should show devflow
+/init          # run inside any git repo to build the knowledge graph
+```
+
+---
+
+### OpenCode
 
 Add to your `opencode.json`:
 ```json
@@ -62,33 +87,7 @@ Add to your `opencode.json`:
 }
 ```
 
-DevFlow is injected automatically at session start — no further setup needed.
-
-### Claude Code
-
-```bash
-/plugin install devflow@claude-plugins-official
-```
-
-Or from source:
-```bash
-git clone https://github.com/<user>/Development-Flow.git ~/.devflow
-/plugin install ~/.devflow
-```
-
-### npm (global)
-
-```bash
-npm install -g @devflow/skills
-```
-
-Then `df-init`, `df-sync`, `df-explain`, etc. are globally available on PATH.
-
-### Cursor
-
-```bash
-/add-plugin devflow
-```
+OpenCode also adds `bin/` to PATH automatically — no extra setup.
 
 ### Gemini CLI
 
@@ -98,7 +97,17 @@ gemini extensions install https://github.com/<user>/Development-Flow
 
 ### Codex
 
-See [`.codex/INSTALL.md`](.codex/INSTALL.md) for manual setup instructions.
+See [`.codex/INSTALL.md`](.codex/INSTALL.md) for manual setup.
+
+---
+
+### npm (future)
+
+```bash
+npm install -g @devflow/skills
+```
+
+Not yet published — use the git clone method above.
 
 ---
 
