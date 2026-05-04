@@ -1,6 +1,8 @@
 ---
 name: devflow-fix
-description: Use when debugging a bug or test failure in a DevFlow-initialized project, before proposing fixes
+description: Fix a bug using memory-aware hypothesis-driven debugging
+requires: [mem-sync]
+triggers_on_complete: [verify]
 ---
 
 # Fix Skill
@@ -67,17 +69,9 @@ Affected nodes: <list node ids>
 
 Parse the developer's description and identify the most likely node (entity, route, or service).
 
-Show the inferred node:
-
-```
-I think this is about [CommentController] (route) — src/routes/CommentController.svelte.
-Is that right? (Y / different node)
-```
-
-- If developer confirms (Y or equivalent) → proceed
-- If developer specifies a different node → use that node name instead
-
-Then run:
+Print: `[DevFlow] Targeting [<inferred-node>] (<kind>) — <file>.` (T2 Inform)
+Run `df-explain <inferred-node>` immediately. Do not wait for confirmation.
+If df-explain returns no match: T2 Inform — `[DevFlow] No node match — searching by file path.` Try file path resolution. If still no match: T3 Gate — ask developer for correct node.
 
 ```bash
 df-explain <node-name>
@@ -102,7 +96,11 @@ Do NOT open any `.cs`, `.svelte`, `.ts`, or other source files yet.
 
 State a hypothesis explicitly before reading any code.
 
-Format:
+Print: `[DevFlow] Hypothesis [cycle N/3]: <one-line summary>.` (T2 Inform)
+Print: `[DevFlow] Reading <N> files: <file1>, <file2>, ...` (T2 Inform)
+Read the files immediately. Do not wait for confirmation.
+
+Format the hypothesis output:
 
 ```
 Hypothesis [cycle 1/3]: <one paragraph description of what you think is wrong and why>
@@ -110,11 +108,9 @@ Hypothesis [cycle 1/3]: <one paragraph description of what you think is wrong an
 Files to read (from df-explain output):
   - <file 1>  (<reason: inbound/outbound node, or architecture section>)
   - <file 2>  (<reason>)
-
-Reading these files — does this look right? (Y / adjust list)
 ```
 
-Wait for developer confirmation (or immediate proceed if no objection). Then read ONLY those files.
+Then read ONLY those files.
 
 ---
 
@@ -195,8 +191,8 @@ Suggested commit: fix: <short description>
 |---|---|
 | Memory stale (dirty or SHA mismatch) | Auto-run df-sync, print message, continue |
 | `graph_conflicts.json` exists | Print conflicted nodes, halt until df-resolve is run |
-| `df-explain` returns multiple matches | Ask developer to be more specific before continuing |
-| `df-explain` returns no match | Ask developer to specify a different starting node |
+| `df-explain` returns multiple matches | T3 Gate — list matches, ask which one (genuinely ambiguous) |
+| `df-explain` returns no match | T2 Inform — try file path resolution; T3 Gate if still no match |
 | No test command available | Ask developer to provide test command |
 | `df-test` not on PATH | Fall back to `test_cmd` from `config.json` with warning: `[DevFlow] df-test not found — using config test_cmd` |
 | 3 cycles exhausted | Surface findings and diagnosis, do not attempt 4th cycle |
@@ -205,11 +201,13 @@ Suggested commit: fix: <short description>
 
 ## Guard Rails
 
-1. **Hypothesis before code.** State hypothesis before reading any source file.
-2. **Max 3 cycles.** Never start a 4th cycle. Surface findings to user.
+1. **Hypothesis before code.** State hypothesis (T2 Inform) before reading any source file. — because undirected file reading wastes cycles on wrong files.
+2. **Max 3 cycles.** Never start a 4th cycle. T3 Gate — surface findings, ask for direction.
 3. **Scope.** Fix only what the hypothesis covers. Don't fix adjacent code.
 4. **Reality check.** If it works and hypothesis explains it — done. Don't look for more problems.
-5. **Decision protocol.** Multiple node matches, exhausted cycles → propose 2-3 options. Let user choose.
+5. **Node inference is T2.** Print the inferred node, proceed. Only escalate to T3 if no match found.
+6. **File list is T2.** Print files to be read, read them. Do not wait for confirmation.
+7. **Exhausted cycles is T3.** After 3 failed cycles: T3 Gate. See `skills/_shared.md`.
 
 ---
 
@@ -230,7 +228,7 @@ Suggested commit: fix: <short description>
 | "Tests pass, fix works" | Tests passing ≠ root cause fixed. Verify hypothesis. |
 | "Memory probably current" | Run staleness check. Probably ≠ verified. |
 | "While I'm here, fix this too" | Out of scope. Leave it. |
-| "I know what user wants fixed" | Propose options. Let them choose. |
+| "Node is obvious" | T2 Inform it. Don't skip df-explain. |
 
 ## Red Flags — STOP
 

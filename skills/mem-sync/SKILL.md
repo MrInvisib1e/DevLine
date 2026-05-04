@@ -1,6 +1,8 @@
 ---
 name: devflow-mem-sync
-description: Use when graph memory may be stale — before any skill that reads memory.md, nodes.json, or edges.json
+description: Verify DevFlow memory is fresh and sync if stale
+requires: []
+triggers_on_complete: []
 ---
 
 # Skill: mem-sync
@@ -112,11 +114,11 @@ If Step 3 fails:
 
 ## Guard Rails
 
-1. **Staleness check first.** Check `last_synced` vs HEAD before reading any memory file.
-2. **Run df-sync when stale.** Don't proceed with stale memory.
-3. **Verify after sync.** Confirm `dirty: false` and `last_synced` = HEAD after df-sync.
-4. **Reality check.** Memory is current (`last_synced` = HEAD, `dirty: false`) → no action needed. Don't sync unnecessarily.
-5. **Decision protocol.** df-sync fails → propose 2-3 options (retry, proceed degraded, halt).
+1. **Never silently proceed with stale memory.** If memory is stale: T2 Inform that sync is running, run it, continue. Never pretend memory is fresh when it isn't.
+2. **No T3 gates.** Sync failures → T2 Inform with error + continue in degraded mode. Do not ask the user what to do. See `skills/_shared.md`.
+3. **Degraded mode is safe.** If df-sync fails, proceeding with stale memory is better than blocking. T2 Inform: `[DevFlow] Sync failed — using stale memory (last synced: <sha>).`
+4. **Verify after sync.** Confirm `dirty: false` and `last_synced` = HEAD after df-sync.
+5. **Reality check.** Memory up to date → T1 Silent. No action needed. Don't run df-sync unnecessarily.
 
 ## Rationalization Prevention
 
@@ -132,6 +134,6 @@ If Step 3 fails:
 - Reading memory.md without staleness check
 - Skipping df-sync when dirty=true
 - Skipping df-sync when last_synced ≠ HEAD
-- Proceeding when df-sync fails without offering options
+- Blocking when df-sync fails instead of T2 Inform + degraded mode
 
 **Stop. Check staleness. Then read.**

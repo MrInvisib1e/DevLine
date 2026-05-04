@@ -1,6 +1,8 @@
 ---
 name: devflow-verify
-description: Use when about to claim a slice is done, a fix is applied, a review is complete, or any DevFlow task is finished — requires running verification commands before making success claims
+description: Verification gates before completion claims
+requires: []
+triggers_on_complete: []
 ---
 
 # Skill: verify
@@ -40,10 +42,10 @@ What to run before claiming done:
 
 ## Guard Rails
 
-1. **Evidence before claims.** Run the command. Read the output. Then state the result.
-2. **Fresh verification.** Earlier passing ≠ passing now. Run again.
-3. **Reality check.** If it passed and nothing changed — it's still passing. No need to re-run unnecessarily.
-4. **Decision protocol.** Partial failures → propose options (fix now, defer, or proceed with known failures documented).
+1. **Evidence before claims.** Never claim work is complete without fresh verification output. — because the AI's confidence is not evidence.
+2. **No T3 gates.** Partial verification failures → T2 Inform with specific failures listed. Continue. See `skills/_shared.md`.
+3. **Run the actual commands.** Reading test files is not the same as running tests. Read the output.
+4. **Reality check.** All verification passes → done. T1 Silent. Don't add extra checks.
 
 ---
 
@@ -56,7 +58,7 @@ What to run before claiming done:
 | "df-test is slow" | Slow verification > fast false claim. |
 | "JSON is just bookkeeping" | Stale JSON breaks resume. Update it. |
 | "Review found nothing, skip re-check" | Re-read diff. Confirm. |
-| "I know what user wants done" | Propose options. Let them choose. |
+| "Partial failures, ask user" | T2 Inform with failures listed. Continue. |
 | "Nothing changed, no need to verify" | If nothing changed — skip is fine. Otherwise run it. |
 
 ## Red Flags — STOP

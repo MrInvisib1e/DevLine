@@ -1,6 +1,8 @@
 ---
 name: devflow-plan
-description: Use when you need a memory-aware implementation plan without the full feature lifecycle — quick planning for tasks, refactors, or changes that don't need PRD interrogation or agent-driven execution
+description: Memory-aware implementation planning without full feature lifecycle
+requires: [mem-sync]
+triggers_on_complete: []
 ---
 
 # Skill: plan
@@ -104,7 +106,7 @@ Present the plan. Ask:
 
 > **"Does this plan look right? (yes to proceed, or tell me what to change)"**
 
-If changes requested: propose 2-3 concrete adjustment options. Do not rewrite the entire plan — adjust only what's requested.
+If changes requested: adjust only what's requested. Do not rewrite the entire plan.
 
 ---
 
@@ -118,12 +120,13 @@ No `.devflow/active` symlink. No git branch creation.
 
 ## Guard Rails
 
-1. **Memory before planning.** Never plan without reading memory.md first.
-2. **df-explain before planning.** Never plan without running df-explain on relevant nodes.
-3. **No active symlink.** `/plan` is read-only on `.devflow/` — never creates `.devflow/active`.
-4. **Scope.** Plan only what's described. Don't expand scope.
-5. **Decision protocol.** When input is needed, propose 2-3 options with trade-offs.
-6. **Reality check.** If the code already works and follows conventions — it doesn't need changing.
+1. **Memory before plan.** Always read `memory.md` and run domain analysis before generating tasks. — because planning without context produces incorrect file paths and missed dependencies.
+2. **One T3 gate.** The plan approval gate is appropriate — the plan is irreversible work. All other decisions are T1 or T2. See `skills/_shared.md`.
+3. **T2 for domain inference.** Print the modules identified before approval. Do not ask to confirm each one.
+4. **File paths must be real.** Every task must reference actual files found in the repo. No invented paths.
+5. **No active symlink.** `/plan` is read-only on `.devflow/` — never creates `.devflow/active`.
+6. **Scope.** Plan only what's described. Don't expand scope.
+7. **Reality check.** If plan is complete and consistent with memory — present for approval. Don't add tasks for tasks' sake.
 
 ---
 
@@ -135,7 +138,7 @@ No `.devflow/active` symlink. No git branch creation.
 | "Memory probably current" | Check staleness. Probably ≠ verified. |
 | "Plan obvious, skip approval" | Present plan. User decides. |
 | "While I'm here, plan this refactor too" | Out of scope. Stick to the task. |
-| "I know what user wants planned" | Propose options. Let them choose. |
+| "Path looks right" | Verify against actual files. No invented paths. |
 | "This could be better while I'm here" | Could ≠ should. Ship what works. |
 
 ## Red Flags — STOP

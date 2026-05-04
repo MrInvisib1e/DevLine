@@ -1,6 +1,8 @@
 ---
 name: devflow-review
-description: Use when reviewing a diff against project conventions stored in graph memory, before merge or PR
+description: Convention-driven code review using DevFlow memory context
+requires: [mem-sync]
+triggers_on_complete: []
 ---
 
 # Skill: review
@@ -309,14 +311,13 @@ Degraded mode is a fallback, not a feature. The review is significantly less use
 
 ## Guard Rails
 
-- **Memory before diff.** Always read `memory.md` before examining any code changes.
-- **Conventions, not opinions.** Every finding must reference a specific convention or graph relationship. No subjective judgments.
-- **Read-only.** This skill never modifies files, suggests fixes, or creates commits.
-- **No false precision.** Ambiguous conventions produce NOTE findings, not BLOCKING.
-- **Contested nodes always tagged.** Any finding touching a conflicted node gets `[contested-intent]`.
-- **Large diffs are bounded.** Full analysis on top 30 files by connectivity; summary for the rest.
-- **Reality check.** Convention-compliant code that passes tests — PASS. Don't flag what isn't a convention violation.
-- **Decision protocol.** Ambiguous convention interpretation → propose 2-3 options for user to decide. Never resolve ambiguity unilaterally.
+- **Memory before diff.** Always read `memory.md` before examining any code changes. — because reviewing without context produces opinion-based findings, not convention-based ones.
+- **Conventions, not opinions.** Every finding must reference a specific convention or graph relationship from memory.
+- **Read-only.** This skill never modifies files, suggests fixes outside findings, or creates commits.
+- **T2 for ambiguity.** Ambiguous convention interpretation → T2 Inform with assumption stated. Do not pause.
+- **No T3 gates.** This skill is fully autonomous. See `skills/_shared.md`.
+- **Large diff handling.** If diff has >30 nodes: focus on top 30 by connectivity score from `df-explain`. T2 inform: `[DevFlow] Large diff — focusing on top 30 nodes by connectivity.`
+- **Reality check.** Correct, working, conventional code → no finding. Don't invent problems.
 
 ---
 
@@ -331,7 +332,7 @@ Degraded mode is a fallback, not a feature. The review is significantly less use
 | "No convention here, flag anyway" | No convention = no finding. Note it, don't flag. |
 | "Conflicted node, pick one" | Tag contested-intent. Don't resolve during review. |
 | "While I'm here, flag style issue" | Not a convention violation. Leave it. |
-| "I know what user wants fixed" | Propose options. Let them choose. |
+| "Convention ambiguous" | T2 Inform with assumption. Don't pause for input. |
 
 ## Red Flags — STOP
 

@@ -1,6 +1,8 @@
 ---
 name: devflow-feature
-description: Use when building a new feature that requires PRD, domain analysis, vertical slice planning, and agent-driven execution with graph memory
+description: Full feature lifecycle — PRD → domain → slices → implement → review → completion
+requires: [mem-sync]
+triggers_on_complete: [verify]
 ---
 
 # Skill: feature
@@ -146,15 +148,16 @@ Read ONLY the phase file you need right now. Do not pre-load future phases.
 
 These rules are ABSOLUTE — never override:
 
-1. **Never auto-proceed past a STOPPING GATE.** Always wait for user approval.
-2. **Never dispatch two batches simultaneously.**
-3. **Never modify slice MD files during execution.** They are the spec.
-4. **Always update slice JSON immediately** after each agent completes.
-5. **Never skip Phase 6.** Memory sync and cleanup must happen.
-6. **Never remove `.devflow/plans/` folders.** They are audit trails.
-7. **If unsure about scope:** stop and ask. Don't guess.
-8. **Reality check.** Code that works, follows conventions, and passes tests — done. Don't invent problems. Don't refactor what isn't broken.
-9. **Decision protocol.** When input is needed, propose 2-3 concrete options with trade-offs. Never decide for the user. Never ask open-ended "what do you want?" — give choices.
+1. **Three T3 gates. No more.** The only stopping gates are: PRD approval (Phase 0), slice plan approval (Phase 2), and completion strategy (Phase 6). All other decisions are T1 or T2. See `skills/_shared.md`.
+2. **T2 for mid-execution judgments.** Merge conflicts (auto-resolved), scope ambiguity, concerns noted by agents → T2 Inform with assumption stated. Do not pause.
+3. **T1 for mechanical steps.** Worktree creation, git hook updates, config writes, df-sync calls → T1 Silent.
+4. **Never dispatch two batches simultaneously.**
+5. **Never modify slice MD files during execution.** They are the spec.
+6. **Always update slice JSON immediately** after each agent completes.
+7. **Never skip Phase 6.** Memory sync and cleanup must happen.
+8. **Never remove `.devflow/plans/` folders.** They are audit trails.
+9. **If unsure about scope:** T2 Inform — state the assumption made, proceed. Example: `[DevFlow] Scope ambiguous — assuming X. Proceeding.`
+10. **Reality check.** Code that works, follows conventions, passes tests — done. Don't invent problems.
 
 ---
 
@@ -170,7 +173,7 @@ These rules are ABSOLUTE — never override:
 | "Fix it next feature" | Next feature won't fix this one. |
 | "Quick mode = less rigor" | Fewer questions. Not fewer checks. |
 | "While I'm here, fix this too" | Out of scope. Works. Leave it. |
-| "I know what user wants" | Propose options. Let them choose. |
+| "Scope ambiguous" | T2 Inform with assumption. Don't ask. |
 
 ## Red Flags — STOP
 
@@ -182,7 +185,7 @@ These rules are ABSOLUTE — never override:
 - About to merge without Phase 5
 - "Quick mode means skip this"
 - Fixing adjacent code that wasn't broken
-- Deciding for user without offering options
+- Adding a gate that isn't one of the 3 canonical T3 gates
 
 **Stop. Re-read guard rails. Follow the process.**
 
