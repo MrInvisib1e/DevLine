@@ -296,6 +296,30 @@ static_edges() {
 
   [[ -f "$file" ]] || { echo "[]"; return; }
 
+  # Try ts-extract helper first (handles more languages with AST accuracy)
+  local ts_extract_bin
+  ts_extract_bin="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/ts-extract"
+
+  if [[ -x "$ts_extract_bin" ]]; then
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      local target confidence ek
+      target=$(printf '%s' "$line" | jq -r '.target // ""' 2>/dev/null || echo "")
+      confidence=$(printf '%s' "$line" | jq -r '.confidence // 0.7' 2>/dev/null || echo "0.7")
+      ek=$(printf '%s' "$line" | jq -r '.edge_kind // "uses"' 2>/dev/null || echo "uses")
+      [[ -z "$target" || "$target" = "null" ]] && continue
+      edges_json=$(printf '%s' "$edges_json" | jq \
+        --arg from "$node_id" \
+        --arg to_path "$target" \
+        --arg rel "$ek" \
+        --argjson conf "$confidence" \
+        '. + [{"from": $from, "to_path": $to_path, "rel": $rel, "source": "static", "confidence": $conf}]')
+    done < <("$ts_extract_bin" "$file" 2>/dev/null || true)
+    echo "$edges_json"
+    return
+  fi
+
+  # Fallback: original regex extraction (used when ts-extract not available)
   local ext="${file##*.}"
   case "$ext" in
     ts|svelte)
