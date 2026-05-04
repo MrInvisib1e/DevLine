@@ -53,44 +53,40 @@ bin/
 
 ## Installation
 
-### Step 1 — Clone the repo
+### One command
 
 ```bash
 git clone https://github.com/<your-username>/Development-Flow.git ~/.devflow
+~/.devflow/bin/df-install
 ```
 
-Then add `~/.devflow/bin` to your PATH (skills need the shell scripts):
+`df-install` handles everything automatically:
+- Adds `~/.devflow/bin` to your PATH (in `~/.zshrc` / `~/.bashrc`)
+- Registers DevFlow as a plugin in Claude Code (symlink + session hook)
+- Updates `~/.claude/CLAUDE.md` with skill paths
+- Detects and configures OpenCode if present
+- Idempotent — safe to re-run after updates
 
+**After install:** restart your terminal, then in any git repo type `/init`.
+
+**Flags:**
 ```bash
-# Add to ~/.zshrc or ~/.bashrc
-export PATH="$HOME/.devflow/bin:$PATH"
-source ~/.zshrc  # or restart your terminal
+df-install --dry-run                    # preview changes, write nothing
+df-install --platform claude            # Claude Code only
+df-install --platform opencode          # OpenCode only
+df-install --install-dir /path/to/repo  # if installed somewhere other than ~/.devflow
 ```
-
-### Step 2 — Connect to your AI platform
 
 ---
 
+### Platform details
+
 #### Claude Code
 
-Claude Code loads skills referenced in `CLAUDE.md`. Copy the provided template to your user-level config:
-
-```bash
-cat ~/.devflow/CLAUDE.md >> ~/.claude/CLAUDE.md
-```
-
-This tells Claude Code where to find the DevFlow skills. No plugin marketplace needed — skills are loaded on demand when you use `/init`, `/feature`, `/fix`, etc.
-
-**Optional — auto-inject bootstrap at session start:**
-
-If you want DevFlow to announce itself automatically at the start of every Claude Code session (like Superpowers does), you need a GitHub-hosted marketplace repo. Once you've set one up:
-
-```bash
-/plugin marketplace add <your-github-username>/devflow-marketplace
-/plugin install devflow@devflow-marketplace
-```
-
-The marketplace approach runs `hooks/session-start` which injects `skills/using-devflow/SKILL.md` into every session context automatically. Without it, skills still work — they're just loaded on first use rather than pre-announced.
+`df-install` creates a local plugin registration that:
+- Runs `hooks/session-start` at the beginning of every session
+- Injects `skills/using-devflow/SKILL.md` into context (announces DevFlow + skill table)
+- Skills are loaded on demand — type `/init`, `/feature`, `/fix`, etc.
 
 **Verify:**
 ```bash
@@ -101,14 +97,12 @@ df-explain --rank   # should print ranked nodes (run inside a git repo after /in
 
 #### OpenCode
 
-Add to your `opencode.json`:
+`df-install` adds the local path to `opencode.json` automatically. Or manually:
 ```json
 {
   "plugin": ["devflow@git+https://github.com/<your-username>/Development-Flow.git"]
 }
 ```
-
-OpenCode installs the plugin directly from git and adds `bin/` to PATH automatically. No extra setup.
 
 ---
 
@@ -122,9 +116,7 @@ gemini extensions install https://github.com/<your-username>/Development-Flow
 
 #### Cursor
 
-In Cursor Agent chat, register the marketplace first, then install (requires a published marketplace repo — see Claude Code note above).
-
-Manual fallback: add the skills path to your Cursor CLAUDE.md equivalent.
+Manual fallback: add the skills path to your Cursor settings. See `.cursor-plugin/plugin.json`.
 
 ---
 

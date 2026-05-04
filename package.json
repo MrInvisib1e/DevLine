@@ -12,7 +12,8 @@
     "df-explain":   "./bin/df-explain",
     "df-export":    "./bin/df-export",
     "df-resolve":   "./bin/df-resolve",
-    "df-migrate":   "./bin/df-migrate"
+    "df-migrate":   "./bin/df-migrate",
+    "df-install":   "./bin/df-install"
   },
   "files": [
     "bin/",
