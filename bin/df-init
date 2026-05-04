@@ -203,56 +203,75 @@ install_hook() {
 # ─── generate memory.md ───────────────────────────────────────────────────────
 
 render_memory_md() {
-  local memory_json="$1"
-  local nodes_json="$2"
-  local edges_json="$3"
+  local branch_dir="$1"
+  local memory_json_file="${branch_dir}/memory.json"
+  local nodes_json_file="${branch_dir}/nodes.json"
+  local graph_db="${DEVFLOW_DIR:-${devflow_dir}}/graph.db"
 
+  # Section 1: Stack
   local stack_runtime stack_frontend test_cmd
-  stack_runtime=$(echo "$memory_json" | jq -r '.stack.runtime // "unknown"')
-  stack_frontend=$(echo "$memory_json" | jq -r '.stack.frontend // "unknown"')
-  test_cmd=$(echo "$memory_json" | jq -r '.stack.test_cmd // "unknown"')
+  stack_runtime=$(jq -r '.stack.runtime // "unknown"' "$memory_json_file" 2>/dev/null || echo "unknown")
+  stack_frontend=$(jq -r '.stack.frontend // ""' "$memory_json_file" 2>/dev/null || echo "")
+  test_cmd=$(jq -r '.stack.test_cmd // ""' "$memory_json_file" 2>/dev/null || echo "")
+  local head_sha
+  head_sha=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+  local node_count edge_count
+  node_count=$(jq '.nodes | length' "$nodes_json_file" 2>/dev/null || echo "0")
+  edge_count=$(jq '.edges | length' "${branch_dir}/edges.json" 2>/dev/null || echo "0")
 
-  local md
-  md="# DevFlow Memory\n\n"
-  md+="## Stack\n\n"
-  md+="- Runtime: ${stack_runtime}\n"
-  md+="- Frontend: ${stack_frontend}\n"
-  md+="- Test: ${test_cmd}\n\n"
-  md+="## Graph\n\n"
+  printf '# DevFlow Memory\n\n'
+  printf '<!-- Generated: %s | Nodes: %s | Edges: %s -->\n\n' "$head_sha" "$node_count" "$edge_count"
+  printf '## Stack\n\n'
+  printf '%s\n' "- Runtime: ${stack_runtime}"
+  [[ -n "$stack_frontend" ]] && printf '%s\n' "- Frontend: ${stack_frontend}"
+  [[ -n "$test_cmd" ]] && printf '%s\n' "- Test: ${test_cmd}"
+  printf '\n'
 
-  # Render each node with its edges
-  while IFS= read -r node; do
-    local node_id node_name node_type node_intent
-    node_id=$(echo "$node" | jq -r '.id')
-    node_name=$(echo "$node" | jq -r '.name')
-    node_type=$(echo "$node" | jq -r '.type')
-    node_intent=$(echo "$node" | jq -r '.intent // ""')
+  # Section 2: Top Nodes by PageRank (or by inbound edge count from SQLite)
+  printf '## Top Nodes\n\n'
+  local token_count=150  # section 1 overhead
+  local max_node_tokens=2000
 
-    md+="${node_name} [${node_type}]"
-    if [[ -n "$node_intent" ]]; then
-      md+=" — ${node_intent}"
-    fi
-    md+="\n"
-
-    # Find edges from this node
-    while IFS= read -r edge; do
-      local rel to_id edge_intent
-      rel=$(echo "$edge" | jq -r '.rel')
-      to_id=$(echo "$edge" | jq -r '.to')
-      edge_intent=$(echo "$edge" | jq -r '.intent // ""')
-      # Get target name
-      local to_name
-      to_name=$(echo "$nodes_json" | jq -r --arg id "$to_id" '.nodes[] | select(.id == $id) | .name')
-      md+="  ${rel} → ${to_name:-$to_id}"
-      if [[ -n "$edge_intent" ]]; then
-        md+=" (${edge_intent})"
+  if [[ -f "$graph_db" ]] && command -v sqlite3 >/dev/null 2>&1; then
+    while IFS='|' read -r nid nkind nfile; do
+      [[ -z "$nid" ]] && continue
+      local line="${nid} [${nkind}] ${nfile}"
+      local line_tokens=$(( ${#line} / 4 + 2 ))
+      if [[ $(( token_count + line_tokens )) -gt $max_node_tokens ]]; then
+        break
       fi
-      md+="\n"
-    done < <(echo "$edges_json" | jq -c --arg id "$node_id" '.edges[] | select(.from == $id)')
+      printf '%s\n' "- ${line}"
+      token_count=$(( token_count + line_tokens ))
+    done < <(sqlite3 "$graph_db" \
+      "SELECT n.id, n.kind, n.file_id FROM nodes n
+       LEFT JOIN edges e ON e.target = n.id
+       GROUP BY n.id
+       ORDER BY COUNT(e.source) DESC
+       LIMIT 100;" 2>/dev/null || true)
+  else
+    # Fallback: read from nodes.json sorted by type
+    jq -r '.nodes[] | "- \(.id) [\(.type // .kind // "source")] \(.file // .file_id // "")"' \
+      "$nodes_json_file" 2>/dev/null | head -50 || true
+  fi
+  printf '\n'
 
-  done < <(echo "$nodes_json" | jq -c '.nodes[]')
+  # Section 3: Edge Summary
+  printf '## Edge Summary\n\n'
+  if [[ -f "$graph_db" ]] && command -v sqlite3 >/dev/null 2>&1; then
+    local ext_count inf_count amb_count
+    ext_count=$(sqlite3 "$graph_db" "SELECT COUNT(*) FROM edges WHERE confidence >= 1.0;" 2>/dev/null || echo "0")
+    inf_count=$(sqlite3 "$graph_db" "SELECT COUNT(*) FROM edges WHERE confidence >= 0.5 AND confidence < 1.0;" 2>/dev/null || echo "0")
+    amb_count=$(sqlite3 "$graph_db" "SELECT COUNT(*) FROM edges WHERE confidence < 0.5;" 2>/dev/null || echo "0")
+    printf 'EXTRACTED: %s  INFERRED: %s  AMBIGUOUS: %s\n\n' "$ext_count" "$inf_count" "$amb_count"
+  else
+    printf 'Total edges: %s\n\n' "$edge_count"
+  fi
 
-  printf '%b' "$md"
+  # Section 4: Drill-down
+  printf '## Drill-down\n\n'
+  printf 'Run `df-explain --rank` for full ranked graph.\n'
+  printf 'Run `df-explain <node-id>` for a specific node.\n'
+  printf 'Run `df-explain --diff HEAD~5 HEAD` to see recent graph changes.\n'
 }
 
 # ─── --write-memory ───────────────────────────────────────────────────────────
@@ -276,6 +295,7 @@ cmd_write_memory() {
   branch_canon=$(canonicalize_branch "$branch")
 
   local devflow_dir=".devflow"
+  export DEVFLOW_DIR="$devflow_dir"
   local branch_dir="${devflow_dir}/branches/${branch_canon}"
 
   mkdir -p "$branch_dir"
@@ -372,9 +392,9 @@ PRAGMA journal_mode=WAL;
   atomic_write "${branch_dir}/nodes.json"  "$(echo "$nodes_content" | jq '.')"
   atomic_write "${branch_dir}/edges.json"  "$(echo "$edges_content" | jq '.')"
 
-  # Render memory.md
+  # Render memory.md (reads from already-written files)
   local memory_md
-  memory_md=$(render_memory_md "$memory_content" "$nodes_content" "$edges_content")
+  memory_md=$(render_memory_md "$branch_dir")
   atomic_write "${branch_dir}/memory.md" "$memory_md"
 
   # Create/update active symlink
