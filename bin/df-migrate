@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# df-migrate: migrate nodes.json/edges.json to graph.db
+# Usage: df-migrate [--force]
+
+DEVFLOW_DIR=".devflow"
+
+err() { echo "[DevFlow] $*" >&2; }
+
+check_prereqs() {
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    err "Not a git repo."; exit 1
+  fi
+  if ! command -v sqlite3 >/dev/null 2>&1; then
+    err "Missing prerequisite: sqlite3. Install with: brew install sqlite3"; exit 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    err "Missing prerequisite: jq"; exit 1
+  fi
+}
+
+canonicalize_branch() { echo "${1//\//__}"; }
+
+GRAPH_DB_SCHEMA='
+CREATE TABLE IF NOT EXISTS nodes (
+  id      TEXT PRIMARY KEY,
+  kind    TEXT NOT NULL DEFAULT "source",
+  name    TEXT NOT NULL DEFAULT "",
+  file_id TEXT NOT NULL DEFAULT "",
+  line    INTEGER DEFAULT 0,
+  col     INTEGER DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS edges (
+  source     TEXT NOT NULL,
+  target     TEXT NOT NULL,
+  kind       TEXT NOT NULL DEFAULT "uses",
+  confidence REAL NOT NULL DEFAULT 0.7,
+  PRIMARY KEY (source, target, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target);
+CREATE INDEX IF NOT EXISTS idx_nodes_name   ON nodes(name);
+CREATE INDEX IF NOT EXISTS idx_nodes_file   ON nodes(file_id);
+PRAGMA journal_mode=WAL;
+'
+
+ensure_graph_db() {
+  local db="$1"
+  sqlite3 "$db" "$GRAPH_DB_SCHEMA"
+}
+
+cmd_migrate() {
+  local force_flag="${1:-}"
+  check_prereqs
+
+  local branch
+  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+  local branch_canon
+  branch_canon=$(canonicalize_branch "$branch")
+  local branch_dir="${DEVFLOW_DIR}/branches/${branch_canon}"
+  local nodes_file="${branch_dir}/nodes.json"
+  local edges_file="${branch_dir}/edges.json"
+  local db="${DEVFLOW_DIR}/graph.db"
+
+  if [[ ! -f "$nodes_file" ]]; then
+    err "nodes.json not found at ${nodes_file}. Nothing to migrate."; exit 1
+  fi
+
+  if [[ -f "$db" ]]; then
+    local existing_count
+    existing_count=$(sqlite3 "$db" "SELECT COUNT(*) FROM nodes;" 2>/dev/null || echo 0)
+    if [[ "$existing_count" -gt 0 ]]; then
+      if [[ "$force_flag" != "--force" ]]; then
+        err "graph.db already has ${existing_count} nodes. Use --force to re-migrate."
+        exit 0
+      fi
+      err "Re-migrating (--force): clearing existing data."
+      sqlite3 "$db" "DELETE FROM nodes; DELETE FROM edges;"
+    fi
+  fi
+
+  # Create schema
+  ensure_graph_db "$db"
+
+  # Migrate nodes
+  local node_count=0
+  while IFS= read -r node; do
+    [[ -z "$node" ]] && continue
+    local id kind name file_id
+    id=$(printf '%s' "$node"    | jq -r '.id // ""')
+    kind=$(printf '%s' "$node"  | jq -r '.type // "source"')
+    name=$(printf '%s' "$node"  | jq -r '.name // (.id // "" | split(":") | last // "")')
+    file_id=$(printf '%s' "$node" | jq -r '.file // ""')
+    [[ -z "$id" ]] && continue
+    # Escape single quotes for SQLite
+    id="${id//\'/\'\'}"
+    kind="${kind//\'/\'\'}"
+    name="${name//\'/\'\'}"
+    file_id="${file_id//\'/\'\'}"
+    sqlite3 "$db" \
+      "INSERT OR IGNORE INTO nodes(id,kind,name,file_id) VALUES('${id}','${kind}','${name}','${file_id}');"
+    ((node_count++)) || true
+  done < <(jq -c '.nodes[]?' "$nodes_file" 2>/dev/null || true)
+
+  # Migrate edges
+  local edge_count=0
+  if [[ -f "$edges_file" ]]; then
+    while IFS= read -r edge; do
+      [[ -z "$edge" ]] && continue
+      local esource etarget ekind
+      esource=$(printf '%s' "$edge" | jq -r '.from // .source // ""')
+      etarget=$(printf '%s' "$edge" | jq -r '.to // .target // ""')
+      ekind=$(printf '%s' "$edge"   | jq -r '.rel // .kind // "uses"')
+      [[ -z "$esource" || -z "$etarget" ]] && continue
+      esource="${esource//\'/\'\'}"
+      etarget="${etarget//\'/\'\'}"
+      ekind="${ekind//\'/\'\'}"
+      sqlite3 "$db" \
+        "INSERT OR IGNORE INTO edges(source,target,kind,confidence) VALUES('${esource}','${etarget}','${ekind}',0.7);"
+      ((edge_count++)) || true
+    done < <(jq -c '.edges[]?' "$edges_file" 2>/dev/null || true)
+  fi
+
+  # Verify
+  local db_nodes db_edges
+  db_nodes=$(sqlite3 "$db" "SELECT COUNT(*) FROM nodes;")
+  db_edges=$(sqlite3 "$db" "SELECT COUNT(*) FROM edges;")
+
+  echo "[DevFlow] Migration complete: ${db_nodes} nodes, ${db_edges} edges in graph.db"
+}
+
+case "${1:-}" in
+  --force) cmd_migrate "--force" ;;
+  "")      cmd_migrate ;;
+  *) err "Usage: df-migrate [--force]"; exit 1 ;;
+esac

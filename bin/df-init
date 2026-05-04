@@ -281,6 +281,44 @@ cmd_write_memory() {
   mkdir -p "$branch_dir"
   local config_file="${devflow_dir}/config.json"
 
+  # Initialize SQLite graph store if sqlite3 is available
+  if command -v sqlite3 >/dev/null 2>&1; then
+    local graph_db="${devflow_dir}/graph.db"
+    sqlite3 "$graph_db" '
+CREATE TABLE IF NOT EXISTS nodes (
+  id      TEXT PRIMARY KEY,
+  kind    TEXT NOT NULL DEFAULT "source",
+  name    TEXT NOT NULL DEFAULT "",
+  file_id TEXT NOT NULL DEFAULT "",
+  line    INTEGER DEFAULT 0,
+  col     INTEGER DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS edges (
+  source     TEXT NOT NULL,
+  target     TEXT NOT NULL,
+  kind       TEXT NOT NULL DEFAULT "uses",
+  confidence REAL NOT NULL DEFAULT 0.7,
+  PRIMARY KEY (source, target, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target);
+CREATE INDEX IF NOT EXISTS idx_nodes_name   ON nodes(name);
+CREATE INDEX IF NOT EXISTS idx_nodes_file   ON nodes(file_id);
+PRAGMA journal_mode=WAL;
+'
+    # Auto-migrate if nodes.json exists but graph.db is empty
+    if [[ -f "${branch_dir}/nodes.json" ]]; then
+      local db_node_count
+      db_node_count=$(sqlite3 "$graph_db" "SELECT COUNT(*) FROM nodes;" 2>/dev/null || echo 0)
+      if [[ "$db_node_count" -eq 0 ]]; then
+        local df_migrate_bin
+        df_migrate_bin="$(dirname "$(readlink -f "$0")")/df-migrate"
+        if [[ -x "$df_migrate_bin" ]]; then
+          "$df_migrate_bin" 2>/dev/null || true
+        fi
+      fi
+    fi
+  fi
+
   # Extract each section from patch
   local config_content memory_content nodes_content edges_content
   config_content=$(echo "$patch" | jq '.config + {dirty: true}')

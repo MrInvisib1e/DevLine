@@ -40,6 +40,96 @@ atomic_write() {
   mv "$tmp" "$file"
 }
 
+# ─── SQLite graph store ────────────────────────────────────────────────────────
+
+GRAPH_DB_SCHEMA='
+CREATE TABLE IF NOT EXISTS nodes (
+  id      TEXT PRIMARY KEY,
+  kind    TEXT NOT NULL DEFAULT "source",
+  name    TEXT NOT NULL DEFAULT "",
+  file_id TEXT NOT NULL DEFAULT "",
+  line    INTEGER DEFAULT 0,
+  col     INTEGER DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS edges (
+  source     TEXT NOT NULL,
+  target     TEXT NOT NULL,
+  kind       TEXT NOT NULL DEFAULT "uses",
+  confidence REAL NOT NULL DEFAULT 0.7,
+  PRIMARY KEY (source, target, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target);
+CREATE INDEX IF NOT EXISTS idx_nodes_name   ON nodes(name);
+CREATE INDEX IF NOT EXISTS idx_nodes_file   ON nodes(file_id);
+PRAGMA journal_mode=WAL;
+'
+
+ensure_graph_db() {
+  local db="$1"
+  if ! command -v sqlite3 >/dev/null 2>&1; then
+    return 0  # SQLite not available — degrade gracefully
+  fi
+  sqlite3 "$db" "$GRAPH_DB_SCHEMA"
+}
+
+upsert_node_to_db() {
+  local db="$1" id="$2" kind="$3" name="$4" file_id="$5"
+  command -v sqlite3 >/dev/null 2>&1 || return 0
+  [[ ! -f "$db" ]] && return 0
+  id="${id//\'/\'\'}"
+  kind="${kind//\'/\'\'}"
+  name="${name//\'/\'\'}"
+  file_id="${file_id//\'/\'\'}"
+  sqlite3 "$db" \
+    "INSERT OR REPLACE INTO nodes(id,kind,name,file_id) VALUES('${id}','${kind}','${name}','${file_id}');" \
+    2>/dev/null || true
+}
+
+upsert_edge_to_db() {
+  local db="$1" source="$2" target="$3" kind="$4" confidence="${5:-0.7}"
+  command -v sqlite3 >/dev/null 2>&1 || return 0
+  [[ ! -f "$db" ]] && return 0
+  source="${source//\'/\'\'}"
+  target="${target//\'/\'\'}"
+  kind="${kind//\'/\'\'}"
+  sqlite3 "$db" \
+    "INSERT OR REPLACE INTO edges(source,target,kind,confidence) VALUES('${source}','${target}','${kind}',${confidence});" \
+    2>/dev/null || true
+}
+
+sync_nodes_to_db() {
+  local db="$1" nodes_json="$2"
+  command -v sqlite3 >/dev/null 2>&1 || return 0
+  [[ ! -f "$db" ]] && return 0
+  # Bulk upsert all nodes
+  while IFS= read -r node; do
+    [[ -z "$node" ]] && continue
+    local id kind name file_id
+    id=$(printf '%s' "$node" | jq -r '.id // ""')
+    kind=$(printf '%s' "$node" | jq -r '.type // "source"')
+    name=$(printf '%s' "$node" | jq -r '.name // (.id // "" | split(":") | last // "")')
+    file_id=$(printf '%s' "$node" | jq -r '.file // ""')
+    [[ -z "$id" ]] && continue
+    upsert_node_to_db "$db" "$id" "$kind" "$name" "$file_id"
+  done < <(printf '%s' "$nodes_json" | jq -c '.[]?' 2>/dev/null || true)
+}
+
+sync_edges_to_db() {
+  local db="$1" edges_json="$2"
+  command -v sqlite3 >/dev/null 2>&1 || return 0
+  [[ ! -f "$db" ]] && return 0
+  # Bulk upsert all edges
+  while IFS= read -r edge; do
+    [[ -z "$edge" ]] && continue
+    local src tgt knd
+    src=$(printf '%s' "$edge" | jq -r '.from // .source // ""')
+    tgt=$(printf '%s' "$edge" | jq -r '.to // .target // ""')
+    knd=$(printf '%s' "$edge" | jq -r '.rel // .kind // "uses"')
+    [[ -z "$src" || -z "$tgt" ]] && continue
+    upsert_edge_to_db "$db" "$src" "$tgt" "$knd" "0.7"
+  done < <(printf '%s' "$edges_json" | jq -c '.[]?' 2>/dev/null || true)
+}
+
 # ─── lock ─────────────────────────────────────────────────────────────────────
 
 acquire_lock() {
@@ -668,6 +758,12 @@ _do_sync() {
     "$(jq -n --argjson n "$nodes_json" '{schema_version:1, nodes:$n}')"
   atomic_write "${branch_dir}/edges.json" \
     "$(jq -n --argjson e "$edges_json" '{schema_version:1, edges:$e}')"
+
+  # Sync to SQLite graph store (additive — JSON is still primary)
+  local graph_db="${DEVFLOW_DIR}/graph.db"
+  ensure_graph_db "$graph_db"
+  sync_nodes_to_db "$graph_db" "$nodes_json"
+  sync_edges_to_db "$graph_db" "$edges_json"
 
   # Render memory.md
   local md
