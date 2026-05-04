@@ -22,6 +22,157 @@ check_prereqs() {
   fi
 }
 
+# ─── PageRank via SQLite ───────────────────────────────────────────────────────
+
+_pagerank_sqlite() {
+  local db="$1"
+  local iterations="${2:-10}"
+  local damping="${3:-0.85}"
+
+  command -v sqlite3 >/dev/null 2>&1 || return 1
+  [[ -f "$db" ]] || return 1
+
+  # Initialize rank table
+  sqlite3 "$db" <<'SQL'
+DROP TABLE IF EXISTS _pr_curr;
+DROP TABLE IF EXISTS _out_degree;
+CREATE TEMP TABLE _pr_curr AS
+  SELECT id, CAST(1.0 AS REAL) / (SELECT COUNT(*) FROM nodes) AS rank
+  FROM nodes;
+CREATE TEMP TABLE _out_degree AS
+  SELECT source AS id, COUNT(*) AS deg FROM edges GROUP BY source;
+SQL
+
+  local i=0
+  while [[ $i -lt $iterations ]]; do
+    sqlite3 "$db" <<SQL
+CREATE TEMP TABLE _pr_next AS
+  SELECT
+    n.id,
+    CAST((1.0 - ${damping}) AS REAL) / (SELECT COUNT(*) FROM nodes)
+    + ${damping} * COALESCE((
+        SELECT SUM(pr.rank / COALESCE(od.deg, 1))
+        FROM edges e
+        JOIN _pr_curr pr ON pr.id = e.source
+        LEFT JOIN _out_degree od ON od.id = e.source
+        WHERE e.target = n.id
+      ), 0.0) AS rank
+  FROM nodes n;
+DROP TABLE _pr_curr;
+ALTER TABLE _pr_next RENAME TO _pr_curr;
+SQL
+    ((i++)) || true
+  done
+
+  # Return ranked results
+  sqlite3 "$db" \
+    "SELECT id, kind, file_id, rank FROM _pr_curr ORDER BY rank DESC;" \
+    2>/dev/null
+}
+
+cmd_rank() {
+  local budget="${1:-1024}"
+  local devflow_dir
+  devflow_dir="$(git rev-parse --show-toplevel 2>/dev/null)/.devflow"
+
+  [[ ! -d "$devflow_dir" ]] && {
+    err "DevFlow not initialized. Run /init first."
+    exit 1
+  }
+
+  local db="${devflow_dir}/graph.db"
+
+  if [[ ! -f "$db" ]] || ! command -v sqlite3 >/dev/null 2>&1; then
+    # Fallback: read from nodes.json sorted by type
+    local nodes_file="${devflow_dir}/active/nodes.json"
+    if [[ -f "$nodes_file" ]]; then
+      echo "[DevFlow] SQLite not available — showing nodes from nodes.json"
+      jq -r '.nodes[] | "\(.id) [\(.type)] \(.file // "")"' "$nodes_file" 2>/dev/null | head -50
+    else
+      err "No graph data found. Run df-sync first."
+      exit 1
+    fi
+    return
+  fi
+
+  echo "[DevFlow] Top nodes by PageRank (budget: ${budget} tokens)"
+  echo ""
+
+  local token_used=0
+  local rank_pos=1
+  while IFS='|' read -r nid nkind nfile nrank; do
+    [[ -z "$nid" ]] && continue
+    local line="${rank_pos}. ${nid} [${nkind}] ${nfile}"
+    local line_tokens=$(( ${#line} / 4 + 2 ))
+    if [[ $(( token_used + line_tokens )) -gt $budget ]]; then
+      echo "(budget exhausted — use --budget N for more)"
+      break
+    fi
+    printf '%s\n' "$line"
+    token_used=$(( token_used + line_tokens ))
+    ((rank_pos++)) || true
+  done < <(_pagerank_sqlite "$db" 2>/dev/null || \
+    sqlite3 "$db" "SELECT id, kind, file_id, 0.0 FROM nodes ORDER BY rowid LIMIT 100;" 2>/dev/null || true)
+
+  echo ""
+  echo "(Showed $((rank_pos - 1)) nodes using ~${token_used} tokens)"
+}
+
+cmd_diff_graph() {
+  local sha1="$1"
+  local sha2="${2:-HEAD}"
+
+  local git_root
+  git_root=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
+  local devflow_dir="${git_root}/.devflow"
+
+  [[ ! -d "$devflow_dir" ]] && {
+    err "DevFlow not initialized."
+    exit 1
+  }
+
+  local active_dir="${devflow_dir}/active"
+
+  # Get nodes at sha1 and sha2 using git show
+  local nodes_at_sha1 nodes_at_sha2
+  local branch_canon
+  branch_canon=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | sed 's|/|__|g' || echo "main")
+  local nodes_path=".devflow/branches/${branch_canon}/nodes.json"
+
+  nodes_at_sha1=$(git show "${sha1}:${nodes_path}" 2>/dev/null | jq '[.nodes[].id]' 2>/dev/null || echo "[]")
+  nodes_at_sha2=$(git show "${sha2}:${nodes_path}" 2>/dev/null | jq '[.nodes[].id]' 2>/dev/null || echo "[]")
+
+  if [[ "$nodes_at_sha1" = "[]" ]] && [[ "$nodes_at_sha2" = "[]" ]]; then
+    echo "[DevFlow] No graph history found at ${sha1} or ${sha2}"
+    return
+  fi
+
+  local added removed
+  added=$(jq -n --argjson a "$nodes_at_sha1" --argjson b "$nodes_at_sha2" \
+    '$b | map(select(. as $x | $a | index($x) == null))' 2>/dev/null || echo "[]")
+  removed=$(jq -n --argjson a "$nodes_at_sha1" --argjson b "$nodes_at_sha2" \
+    '$a | map(select(. as $x | $b | index($x) == null))' 2>/dev/null || echo "[]")
+
+  local added_count removed_count
+  added_count=$(printf '%s' "$added" | jq 'length' 2>/dev/null || echo 0)
+  removed_count=$(printf '%s' "$removed" | jq 'length' 2>/dev/null || echo 0)
+
+  echo "[DevFlow] Graph diff: ${sha1}..${sha2}"
+  echo "  Added nodes:   ${added_count}"
+  echo "  Removed nodes: ${removed_count}"
+
+  if [[ "$added_count" -gt 0 ]]; then
+    echo ""
+    echo "Added:"
+    printf '%s' "$added" | jq -r '.[]' 2>/dev/null | head -20 | sed 's/^/  + /'
+  fi
+  if [[ "$removed_count" -gt 0 ]]; then
+    echo ""
+    echo "Removed:"
+    printf '%s' "$removed" | jq -r '.[]' 2>/dev/null | head -20 | sed 's/^/  - /'
+  fi
+}
+
 # ─── node resolution ──────────────────────────────────────────────────────────
 
 resolve_node() {
@@ -243,6 +394,11 @@ cmd_explain() {
 INPUT=""
 DEPTH=1
 EXACT_NODE=""
+RANK_MODE=false
+DIFF_MODE=false
+DIFF_SHA1=""
+DIFF_SHA2="HEAD"
+BUDGET=1024
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -257,6 +413,13 @@ while [[ $# -gt 0 ]]; do
       EXACT_NODE="${1:-}"
       [[ $# -gt 0 ]] && shift
       ;;
+    --rank) RANK_MODE=true; shift ;;
+    --diff)
+      DIFF_MODE=true; shift
+      DIFF_SHA1="${1:-HEAD~1}"; shift || true
+      DIFF_SHA2="${1:-HEAD}"; shift || true
+      ;;
+    --budget) shift; BUDGET="${1:-1024}"; shift ;;
     -*)
       err "Unknown flag: $1"
       exit 1
@@ -268,9 +431,22 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Handle --rank mode
+if [[ "$RANK_MODE" = true ]]; then
+  cmd_rank "$BUDGET"
+  exit 0
+fi
+
+# Handle --diff mode
+if [[ "$DIFF_MODE" = true ]]; then
+  cmd_diff_graph "$DIFF_SHA1" "$DIFF_SHA2"
+  exit 0
+fi
+
+# Handle no-arg default: show ranked view
 if [[ -z "${INPUT}" && -z "${EXACT_NODE}" ]]; then
-  err "Usage: df-explain <name-or-path> [--depth N] [--node <exact-id>]"
-  exit 1
+  cmd_rank "$BUDGET"
+  exit 0
 fi
 
 cmd_explain "${INPUT}" "${DEPTH}" "${EXACT_NODE}"
