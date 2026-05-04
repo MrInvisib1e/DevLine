@@ -49,66 +49,70 @@ bin/
 
 ## Installation
 
-### 1. Clone the repository
+### OpenCode (recommended)
+
+Add to your `opencode.json`:
+```json
+{
+  "plugin": ["devflow@git+https://github.com/<your-username>/Development-Flow.git"]
+}
+```
+
+DevFlow is injected automatically at session start — no further setup needed.
+
+### Claude Code
 
 ```bash
-git clone https://github.com/<you>/devflow ~/.devflow
+/plugin install devflow@claude-plugins-official
 ```
 
-### 2. Make scripts executable
+Or from source:
+```bash
+git clone https://github.com/<user>/Development-Flow.git ~/.devflow
+/plugin install ~/.devflow
+```
+
+### npm (global)
 
 ```bash
-chmod +x ~/.devflow/bin/df-*
+npm install -g @devflow/skills
 ```
 
-### 3. Add scripts to PATH
+Then `df-init`, `df-sync`, `df-explain`, etc. are globally available on PATH.
 
-**zsh (default on macOS):**
-```bash
-echo 'export PATH="$HOME/.devflow/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-**bash:**
-```bash
-echo 'export PATH="$HOME/.devflow/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-```
-
-### 4. Register skills with Claude Code
-
-Open (or create) `~/.claude/CLAUDE.md` and add the following block:
-
-```markdown
-## DevFlow Skills
-
-The following skills are available:
-
-- **init** (`~/.devflow/skills/init/SKILL.md`): Initialize a repo with DevFlow memory
-- **feature** (`~/.devflow/skills/feature/SKILL.md`): PRD → domain → slice → implement → review
-- **mem-sync** (`~/.devflow/skills/mem-sync/SKILL.md`): Keep memory in sync with code changes
-- **fix** (`~/.devflow/skills/fix/SKILL.md`): Fix a bug using memory-aware context
-- **review** (`~/.devflow/skills/review/SKILL.md`): Review code against project conventions
-```
-
-Claude Code reads `~/.claude/CLAUDE.md` at session start. No restart or plugin registration required — changes take effect on the next session.
-
-### 5. Verify installation
-
-Run the following checklist in your terminal:
+### Cursor
 
 ```bash
-# All 7 scripts are on PATH
-which df-init df-sync df-test df-workspace df-explain df-export df-resolve
-
-# Scripts are executable
-ls -la ~/.devflow/bin/df-*
-
-# Version check
-df-init --version
+/add-plugin devflow
 ```
 
-Then open Claude Code in any directory and type `/init`. You should see the DevFlow init skill activate and begin asking about your repo.
+### Gemini CLI
+
+```bash
+gemini extensions install https://github.com/<user>/Development-Flow
+```
+
+### Codex
+
+See [`.codex/INSTALL.md`](.codex/INSTALL.md) for manual setup instructions.
+
+---
+
+## Quick Start
+
+1. Install DevFlow using your platform's method above
+2. In any git repository: start a conversation and type `/init`
+3. DevFlow will scan your codebase and initialize memory — one approval gate at the end
+4. Use `/feature`, `/fix`, `/review`, etc. as needed
+
+### Prerequisites
+
+- `git` ≥ 2.20
+- `jq` ≥ 1.6  
+- `sqlite3` ≥ 3.35 (for the knowledge graph)
+- macOS or Linux (Windows via WSL2)
+
+> **macOS note:** `flock` is not available by default. DevFlow falls back to PID-based lock files automatically.
 
 ---
 

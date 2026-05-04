@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# DevFlow CLI entry point
+# Usage: devflow <command> [args]
+case "${1:-help}" in
+  init)      shift; exec "$(dirname "$0")/df-init" "$@" ;;
+  sync)      shift; exec "$(dirname "$0")/df-sync" "$@" ;;
+  explain)   shift; exec "$(dirname "$0")/df-explain" "$@" ;;
+  migrate)   shift; exec "$(dirname "$0")/df-migrate" "$@" ;;
+  help|*)
+    echo "DevFlow v3"
+    echo "Usage: devflow <command>"
+    echo "  init     — Initialize DevFlow memory for a repo"
+    echo "  sync     — Sync memory with code changes"
+    echo "  explain  — Query the knowledge graph"
+    echo "  migrate  — Migrate from JSON to SQLite graph store"
+    echo ""
+    echo "Or use individual commands: df-init, df-sync, df-explain, etc."
+    ;;
+esac

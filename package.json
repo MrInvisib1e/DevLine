@@ -1,0 +1,36 @@
+{
+  "name": "@devflow/skills",
+  "version": "3.0.0",
+  "description": "AI development workflow skills — makes AI behave like a senior engineer",
+  "type": "module",
+  "main": ".opencode/plugins/devflow.js",
+  "bin": {
+    "df-init":      "./bin/df-init",
+    "df-sync":      "./bin/df-sync",
+    "df-test":      "./bin/df-test",
+    "df-workspace": "./bin/df-workspace",
+    "df-explain":   "./bin/df-explain",
+    "df-export":    "./bin/df-export",
+    "df-resolve":   "./bin/df-resolve",
+    "df-migrate":   "./bin/df-migrate"
+  },
+  "files": [
+    "bin/",
+    "skills/",
+    "hooks/",
+    ".claude-plugin/",
+    ".cursor-plugin/",
+    ".opencode/",
+    "gemini-extension.json",
+    "GEMINI.md",
+    ".codex/"
+  ],
+  "keywords": ["ai", "developer-tools", "claude", "opencode", "skills"],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devflow": {
+    "skills_dir": "./skills",
+    "bootstrap_skill": "using-devflow"
+  }
+}

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# DevFlow session-start hook for Claude Code
+# Outputs bootstrap skill content as Claude Code additional context
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SKILL_FILE="${ROOT}/skills/using-devflow/SKILL.md"
+
+if [[ ! -f "$SKILL_FILE" ]]; then
+  echo '{"hookSpecificOutput": {"additionalContext": ""}}'
+  exit 0
+fi
+
+# Strip YAML frontmatter (between first and second ---)
+content=$(awk '/^---$/{if(++n==2){found=1;next};next} found{print}' "$SKILL_FILE")
+
+# Fallback: if awk didn't produce output (no frontmatter), use whole file
+if [[ -z "$content" ]]; then
+  content=$(cat "$SKILL_FILE")
+fi
+
+# Escape content as JSON string using python3
+content_escaped=$(printf '%s' "$content" | python3 -c "
+import sys, json
+print(json.dumps(sys.stdin.read()))
+")
+
+printf '{"hookSpecificOutput": {"additionalContext": %s}}' "$content_escaped"
