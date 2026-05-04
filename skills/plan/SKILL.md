@@ -53,6 +53,15 @@ Read `skills/feature/phases/phase-1-domain.md` and follow its steps to:
 - Select a reference feature for code patterns
 - Extract pattern library
 
+### Domain Analysis Table
+
+| Signal | Action |
+|--------|--------|
+| Files exist in `memory.md` under a module | → use that module as anchor |
+| New feature files not in memory | → group by directory/feature name |
+| Cross-module feature | → identify all affected modules, note interfaces |
+| DEFAULT | → use directory structure as module boundary |
+
 ---
 
 ## Phase 2: Plan Generation

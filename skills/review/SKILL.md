@@ -189,6 +189,17 @@ Apply checks against the review context. Each check is **convention-driven** —
 | 6 | Unclassified files | NOTE | Any changed file has no graph node |
 | 7 | Impacted inbound nodes | NOTE | Nodes that depend on changed nodes but are not themselves in the diff |
 
+### Analysis Routing Table
+
+| Finding Type | Severity | Action |
+|-------------|----------|--------|
+| Violates named convention from memory | HIGH | → report with convention name + memory reference |
+| Uses pattern explicitly flagged as anti-pattern | HIGH | → report with anti-pattern name |
+| Touches high-connectivity node without memory awareness | MEDIUM | → report with node connectivity score |
+| Style preference without convention backing | INFO | → skip or note only |
+| Works correctly per all conventions | — | → no finding |
+| DEFAULT | — | → skip |
+
 ### Convention-Driven Extras
 
 If memory.md contains conventions beyond the 7 defaults (e.g., error handling patterns, logging standards, API versioning rules), apply those as additional checks with WARNING severity.

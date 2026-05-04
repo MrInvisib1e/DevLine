@@ -16,7 +16,7 @@ Verify graph memory is current before the session begins. Invoked automatically 
 ## The Iron Law
 
 ```
-NEVER SILENTLY CONTINUE WITH STALE MEMORY.
+NEVER SILENTLY CONTINUE WITH STALE MEMORY. — because proceeding with stale memory causes context drift and incorrect file paths.
 ```
 
 ---
@@ -82,6 +82,18 @@ dirty=$(jq -r '.dirty' .devflow/config.json)
 ```
 
 If all checks pass: exit success.
+
+CHECKPOINT: "[DevFlow] Memory synced: <sha>"
+
+### Sync Result Table
+
+| df-sync result | Action | Output |
+|---------------|--------|--------|
+| Exit 0 | → proceed (T1 Silent) | none |
+| Exit 1 (lock held) | → wait 2s, retry once | T2: `[DevFlow] Sync locked — retrying` |
+| Exit 1 (other) | → proceed in degraded mode | T2: `[DevFlow] Sync failed — using stale memory (last synced: <sha>)` |
+| nodes.json missing | → HALT | `HALT. Print: "DevFlow not initialized. Run /init first."` |
+| DEFAULT | → proceed in degraded mode | T2 Inform |
 
 ### Step 4 — Retry or fail
 

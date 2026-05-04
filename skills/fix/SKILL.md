@@ -18,7 +18,7 @@ Examples:
 ## The Iron Law
 
 ```
-HYPOTHESIS BEFORE CODE. ALWAYS.
+HYPOTHESIS BEFORE CODE. ALWAYS. — because reading code without a hypothesis leads to undirected exploration that misses root causes.
 ```
 
 ---
@@ -79,6 +79,8 @@ df-explain <node-name>
 
 Read and internalize the full output — especially the DEPENDS ON and DEPENDED ON BY sections.
 
+CHECKPOINT: "[DevFlow] Node identified: <node-id>"
+
 ---
 
 ## Step 2 — Context Loading
@@ -100,6 +102,8 @@ Print: `[DevFlow] Hypothesis [cycle N/3]: <one-line summary>.` (T2 Inform)
 Print: `[DevFlow] Reading <N> files: <file1>, <file2>, ...` (T2 Inform)
 Read the files immediately. Do not wait for confirmation.
 
+CHECKPOINT: "[DevFlow] Hypothesis [cycle N/3]: <summary>"
+
 Format the hypothesis output:
 
 ```
@@ -117,6 +121,11 @@ Then read ONLY those files.
 ## Cycle Loop (max 3 cycles)
 
 Each cycle = one hypothesis + targeted file reads + one fix attempt + one test run.
+
+<scope>
+EDIT: only files identified in the current hypothesis.
+DO NOT: refactor adjacent code, add features, update imports unrelated to the bug, touch untested files.
+</scope>
 
 ### Apply the fix
 
@@ -169,6 +178,16 @@ Cycle 3: <hypothesis + what happened>
 Current state: <describe what was changed, whether changes were reverted>
 Suggested next steps: <specific diagnostic hints for the developer>
 ```
+
+### Cycle Outcome Table
+
+| Outcome | Tests Pass? | Action |
+|---------|------------|--------|
+| Fix applied | yes | → DONE. State: `CHECKPOINT: "[DevFlow] Fix verified: <description>"` |
+| Fix applied | no | → new cycle (max 3 total) |
+| Cannot reproduce | — | → T2 Inform: `[DevFlow] Cannot reproduce — describe exact steps`. New hypothesis. |
+| 3 cycles exhausted | — | → T3 Gate: show all 3 hypotheses + evidence. Ask for direction. |
+| DEFAULT | — | → T2 Inform findings so far. Try new hypothesis. |
 
 ---
 

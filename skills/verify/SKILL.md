@@ -18,7 +18,7 @@ Run verification before claiming any DevFlow task is done. Evidence before claim
 ## The Iron Law
 
 ```
-NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
+NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE — because the AI's confidence is not evidence. Run the command and read the output.
 ```
 
 If you haven't run the verification command in this message, you cannot claim it passes.
@@ -37,6 +37,19 @@ What to run before claiming done:
 | Memory synced | `df-sync` + check `dirty=false` | `last_synced` = HEAD |
 | Feature complete | Full test suite via `test_cmd` | Exit 0 |
 | Slice JSON updated | Read JSON file back | Fields match claim |
+
+### Verification Gate Table
+
+| Claim Type | Command to Run | Evidence Required | On Failure |
+|-----------|---------------|-------------------|-----------|
+| "Slice done" | `df-test <slice-id>` or `test_cmd` | All tests pass output | → FAIL, retry |
+| "Fix applied" | `<test_cmd>` | Relevant test names appear | → FAIL, retry |
+| "Memory synced" | `df-init --scan` | JSON with current SHA | → run df-sync |
+| "Feature complete" | `<test_cmd> && <build_cmd>` | Both pass | → T3 Gate |
+| "JSON updated" | `jq . <file>` | Valid JSON parses without error | → fix JSON |
+| DEFAULT | Run the most relevant test command | See passing output | → T2 Inform failure |
+
+CHECKPOINT: "[DevFlow] Verification passed: <claim>"
 
 ---
 

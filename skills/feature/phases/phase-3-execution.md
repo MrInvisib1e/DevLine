@@ -50,7 +50,15 @@ Update `slice-N.json`:
 - If context problem → provide context, re-dispatch
 - If reasoning problem → re-dispatch with more capable model
 - If blocker is a dependency on another slice → add dependency to `depends_on`, defer to next batch
-- If unresolvable → mark `status: "stuck"`, continue with other slices
+        - If unresolvable → mark `status: "stuck"`, continue with other slices
+
+**After BLOCKED (unresolvable) — mandatory write:**
+
+```
+Write to slice JSON: set status = "blocked", blocked_reason = "<reason>"
+Append to plan.md: | <slice-name> | BLOCKED | — | — |
+CHECKPOINT: "[DevFlow] Slice <name> blocked: <reason>"
+```
 
 Update `slice-N.json`:
 - `implementation_summary: "..."`
@@ -87,6 +95,19 @@ Combine:
 Wait for Slice Review Report.
 
 **If PASS:** mark `slice-N.json` → `status: "done"`. Proceed to next slice.
+
+**After PASS verdict (mandatory write):**
+
+1. Write to slice JSON: set `steps[N].done = true` for all completed steps
+2. Append to `plan.md`:
+
+```
+| Slice | Status | Verdict | SHA |
+|-------|--------|---------|-----|
+| <slice-name> | DONE | PASS | <commit-sha> |
+```
+
+3. CHECKPOINT: "[DevFlow] Slice <name> complete: PASS"
 
 **If FAIL:** go to Retry.
 
@@ -157,3 +178,19 @@ Other slices not dependent on Slice N will continue.
 ```
 
 Ask: "Would you like to: (1) manually implement slice N and mark it done, (2) remove it and its dependents from scope, or (3) abort?"
+
+---
+
+### Phase 3 Orchestrator Decision Table
+
+| Agent Result | Tests Pass? | Retry Count | Action |
+|--------------|------------|-------------|--------|
+| DONE | yes | any | → send to reviewer |
+| DONE | no | < 3 | → retry with test failures |
+| DONE | no | = 3 | → mark stuck, T3 Gate |
+| BLOCKED | — | < 3 | → log, retry with more context |
+| BLOCKED | — | = 3 | → mark stuck, T3 Gate |
+| PASS (reviewer) | — | — | → write state, proceed to next slice |
+| FAIL (reviewer) | — | < 3 | → retry implementation with findings |
+| FAIL (reviewer) | — | = 3 | → mark stuck, T3 Gate |
+| DEFAULT | — | — | → T2 Inform, retry |

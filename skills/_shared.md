@@ -72,3 +72,28 @@ Each skill declares its dependencies in YAML frontmatter:
 - `triggers_on_complete:` — skills that SHOULD run after this skill
 
 The AI reads frontmatter at skill start and announces the chain.
+
+## Structured Instruction Format (SIF) Rules
+
+All DevFlow skills follow SIF. Rules:
+
+1. **No prose paragraphs.** Use tables, numbered lists, and code blocks. Never explain in sentences what a table can say.
+2. **Decision tables over prose.** Every conditional logic block is a table with columns: Condition | Action | DEFAULT.
+3. **DEFAULT: on every decision table.** Every table must have a DEFAULT row to prevent the AI freezing on an unhandled case.
+4. **Checkpoint Assertions.** After each critical step, print: `CHECKPOINT: "[DevFlow] <step completed>"`. This forces step completion before proceeding.
+5. **WHY-Grounding.** Every critical rule ends with `— because <consequence>`. Lets the model apply the principle to edge cases.
+6. **Scope Fences.** Before any implementation step: `<scope>EDIT: only <files>. DO NOT: refactor, add features, update deps</scope>`.
+7. **HALT with exact text.** Failure conditions end with: `HALT. Print exactly: "<message>". Do not attempt recovery.`
+8. **Rationalization table placement.** "You Will Be Tempted To" table appears AFTER the steps, not before.
+9. **XML semantic wrapping.** Use `<iron-law>`, `<scope>`, `<checkpoint>` tags for critical blocks.
+10. **Context placement.** Long documents before the task instruction. Steps last in the document.
+
+## Precision Techniques Summary
+
+| Failure Mode | Technique | Format |
+|-------------|-----------|--------|
+| Skips steps | Checkpoint Assertion | `CHECKPOINT: "[DevFlow] Step N done: <result>"` |
+| Misinterprets | WHY-Grounding | `Rule X. — because <consequence>` |
+| Drifts | Scope Fence | `<scope>EDIT: X only. DO NOT: Y</scope>` |
+| Improvises | HALT with exact text | `HALT. Print exactly: "<msg>"` |
+| Skips steps | State Machine Dispatch | Table: Phase → File → When |
