@@ -1,6 +1,18 @@
 {
   "name": "devflow",
+  "description": "AI development workflow skills — makes AI behave like a senior engineer. PRD-first, domain analysis, vertical slices, accurate codebase memory.",
   "version": "3.0.0",
-  "description": "DevFlow — AI development workflow skills",
-  "hooks": "../hooks/hooks.json"
+  "author": {
+    "name": "DevFlow"
+  },
+  "homepage": "https://github.com/yourusername/Development-Flow",
+  "repository": "https://github.com/yourusername/Development-Flow",
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "development-workflow",
+    "memory",
+    "feature-development",
+    "debugging"
+  ]
 }

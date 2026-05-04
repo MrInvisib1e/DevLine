@@ -1,29 +1,43 @@
 #!/usr/bin/env bash
-# DevFlow session-start hook for Claude Code
-# Outputs bootstrap skill content as Claude Code additional context
+# DevFlow SessionStart hook for Claude Code / Cursor
+# Injects the using-devflow bootstrap skill into session context
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-SKILL_FILE="${ROOT}/skills/using-devflow/SKILL.md"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SKILL_FILE="${PLUGIN_ROOT}/skills/using-devflow/SKILL.md"
 
+# Read bootstrap skill content
 if [[ ! -f "$SKILL_FILE" ]]; then
-  echo '{"hookSpecificOutput": {"additionalContext": ""}}'
-  exit 0
+  skill_content="DevFlow: bootstrap skill not found at ${SKILL_FILE}"
+else
+  skill_content=$(cat "$SKILL_FILE" 2>&1)
 fi
 
-# Strip YAML frontmatter (between first and second ---)
-content=$(awk '/^---$/{if(++n==2){found=1;next};next} found{print}' "$SKILL_FILE")
+# Fast JSON string escaping using bash parameter substitution (no python3 needed)
+escape_for_json() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
 
-# Fallback: if awk didn't produce output (no frontmatter), use whole file
-if [[ -z "$content" ]]; then
-  content=$(cat "$SKILL_FILE")
+escaped=$(escape_for_json "$skill_content")
+session_context="<DEVFLOW_ACTIVE>\n${escaped}\n</DEVFLOW_ACTIVE>"
+
+# Output format differs by platform:
+# Claude Code sets CLAUDE_PLUGIN_ROOT
+# Cursor sets CURSOR_PLUGIN_ROOT
+if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
+  printf '{"additional_context": "%s"}\n' "$session_context"
+elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+  printf '{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "%s"}}\n' "$session_context"
+else
+  printf '{"additionalContext": "%s"}\n' "$session_context"
 fi
 
-# Escape content as JSON string using python3
-content_escaped=$(printf '%s' "$content" | python3 -c "
-import sys, json
-print(json.dumps(sys.stdin.read()))
-")
-
-printf '{"hookSpecificOutput": {"additionalContext": %s}}' "$content_escaped"
+exit 0
