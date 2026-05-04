@@ -350,5 +350,3 @@ Then re-run the full init flow from Step 1.
 | "Missing prerequisite: jq" | Tell developer: `brew install jq` or `apt install jq`. |
 | "Invalid memory patch JSON" | Check your assembled JSON for syntax errors and try again. |
 | AI call timeout (both retries) | Nodes written without intent. T2 inform: intent will populate on next `df-sync`. |
-
-Base directory for this skill: ~/.devflow/skills/init
