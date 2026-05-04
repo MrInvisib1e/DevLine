@@ -1,13 +1,15 @@
 ---
 name: devflow-init
 description: Use when initializing DevFlow memory for a new repository or re-classifying files after structural changes
+requires: []
+triggers_on_complete: [verify]
 ---
 
 # Skill: init
 
 # DevFlow Init
 
-Initialize DevFlow memory for the current repository. Drives interactive stack confirmation, optional workspace configuration, AI-powered node/edge classification, and atomic memory write.
+Initialize DevFlow memory for the current repository. Performs automated stack detection, AI-powered node/edge classification, and atomic memory write with a single user gate before writing.
 
 **When invoked:** `/init` in Claude Code while inside any git repo.
 
@@ -19,21 +21,68 @@ Initialize DevFlow memory for the current repository. Drives interactive stack c
 
 ```
 NEVER OVERWRITE EXISTING MEMORY WITHOUT EXPLICIT USER CONSENT.
+One gate. Final. Then write.
 ```
+
+---
+
+## Autonomy Tiers
+
+See `skills/_shared.md` for full T1/T2/T3 definitions.
+
+| Operation | Tier | Behavior |
+|-----------|------|----------|
+| Stack detection | T1 | Silent — auto-detect from filesystem |
+| Workspace name derivation | T1 | Silent — from git remote or directory name |
+| File classification (unambiguous types) | T1 | Silent — expanded auto-classifier |
+| Print detection results | T2 | Inform, no wait |
+| Final summary before write | T3 | Gate — present and wait |
+
+---
+
+## Auto-classifier Table (T1 Silent)
+
+| Pattern | Node Type |
+|---------|-----------|
+| `*.test.*, *.spec.*, __tests__/**` | test |
+| `*.config.*, *.env*, .eslintrc*, tsconfig*, vite.config*, jest.config*` | config |
+| `*.md, *.mdx, docs/**` | docs |
+| `Dockerfile, docker-compose*, .github/**/*.yml, .github/**/*.yaml` | infra |
+| `*.sql, migrations/**, **/migrations/**` | data |
+| `package.json, *.lock, go.mod, requirements.txt, go.sum, Cargo.toml, Gemfile, pyproject.toml` | deps |
+| `bin/**, scripts/**, Makefile, *.sh, Taskfile*` | script |
+| Everything else | source |
+
+---
+
+## Stack Detection Rules (T1 Silent)
+
+| Signal | Inferred |
+|--------|----------|
+| `package.json` present | runtime: nodejs |
+| `package.json` + `vite.config.*` | frontend: sveltekit |
+| `package.json` + `next.config.*` | frontend: nextjs |
+| `*.csproj` or `*.sln` | runtime: dotnet-9 |
+| `requirements.txt` or `pyproject.toml` | runtime: python |
+| `go.mod` | runtime: go |
+| `Cargo.toml` | runtime: rust |
+| `Gemfile` | runtime: ruby |
+| `git remote get-url origin` | workspace name (strip host/org, use repo name) |
+| No remote | workspace name = `basename` of git root directory |
 
 ---
 
 ## Flow
 
-### Step 1 — Scan the repo
+### Step 1 — Scan the repo (T1)
 
-Before running the scan, verify `df-init` is on PATH:
+Verify `df-init` is on PATH:
 
 ```bash
 which df-init
 ```
 
-If not found: tell the developer to install DevFlow and add `~/.devflow/bin` to their PATH. Stop.
+If not found: HALT. Print exactly: "DevFlow not initialized — install DevFlow and add `~/.devflow/bin` to your PATH."
 
 Run:
 
@@ -41,89 +90,60 @@ Run:
 df-init --scan
 ```
 
-Parse the JSON output. Extract: `stack_hints`, `classified`, `unclassified`, `branch`, `branch_canonicalized`, `head_sha`.
+Parse JSON output. Extract: `stack_hints`, `classified`, `unclassified`, `branch`, `branch_canonicalized`, `head_sha`.
 
-If the command fails (exit 1):
-- If "Not a git repo": tell the developer to run `/init` inside a git repository. Stop.
-- If "Missing prerequisite": show the missing tool name. Tell them to install it. Stop.
-- Any other error: show the raw error and stop.
+If the command fails:
+- "Not a git repo" → HALT. Print: "Run `/init` inside a git repository."
+- "Missing prerequisite" → HALT. Show missing tool name.
+- Any other error → HALT. Show raw error.
 
-### Step 2 — Confirm detected stack
+### Step 2 — T1: Auto-detect everything silently
 
-Show the developer what was found:
+Apply the stack detection rules and auto-classifier table above. No prompts. Log all T1 decisions to session audit list.
 
+### Step 3 — T2: Report what was detected
+
+Print (do not wait):
 ```
-[DevFlow] I found the following stack in this repo:
-  Runtime:  <inferred.runtime> (found: <files_found>)
-  Frontend: <inferred.frontend>
-  Test cmd: (not detected — I'll ask)
-
-Is this correct?
-  [Y] Yes
-  [N] No, let me correct it
+[DevFlow] Detected: <runtime> + <frontend>. Workspace: <derived-name>.
+[DevFlow] Classified <N> files automatically (0 unclassified).
 ```
 
-Wait for the developer's response. If N: ask for the correct values one at a time:
-1. What is the runtime? (e.g. `dotnet-9`, `node`, `python-3.12`, `go-1.22`)
-2. What is the frontend framework, if any? (e.g. `sveltekit`, `react`, `none`)
-3. What command runs the tests? (e.g. `dotnet test`, `npm test`, `pytest`)
+Continue immediately.
 
-Store the confirmed values as `stack_runtime`, `stack_frontend`, `test_cmd`.
+### Step 4 — T3: Final summary gate (the ONLY gate)
 
-### Step 3 — Workspace name (optional)
-
-Ask:
+Present before writing memory:
 
 ```
-[DevFlow] Is this repo part of a multi-service workspace?
-  [A] Yes — I'll give it a name
-  [B] No — standalone repo
+[DevFlow] Ready to initialize. Here's what I'll write:
+
+  Workspace:  <name>
+  Runtime:    <runtime>
+  Frontend:   <frontend>
+  Test cmd:   <test_cmd or "not detected — will use df-sync">
+  Nodes:      <N> (all auto-classified)
+  Branch:     <branch>
+
+  Auto-classified (T1 Silent):
+    <count> source, <count> test, <count> config,
+    <count> docs, <count> infra, <count> data,
+    <count> deps, <count> script
+
+  Proceed? [Y / tell me what to change]
 ```
 
-If A: ask for workspace name (e.g. "ovell"). Store as `workspace_name`. Register in `~/.devflow/workspaces/<name>.json` (create the file with `{"name": "<name>", "repos": ["<abs-repo-path>"]}` if it doesn't exist; if it does exist, read the JSON file, add this repo's absolute path to the `repos` array, then write the updated JSON back).
+If user says Y: proceed to Step 5.
+If user requests changes: apply changes and re-present this summary. Do not re-run df-init --scan unless specifically needed.
 
-If B: set `workspace_name = null`.
+### Step 5 — AI: intent + classification + edges
 
-### Step 4 — Custom node types (only if unclassified files exist)
-
-If `unclassified` list is empty: skip this step.
-
-Otherwise ask:
-
-```
-[DevFlow] I found <N> files I couldn't classify. Would you like to define custom node types for them?
-  [A] Yes — show me the files
-  [B] No — treat them as untyped / let AI classify
-```
-
-If A: show unclassified files in batches of 10. For each batch, ask the developer to assign a type or skip. Collect `custom_node_types` and any manually-typed files.
-
-If B: let the AI classify in Step 6.
-
-### Step 5 — Review unclassified files (only if A chosen in Step 4)
-
-For each batch of 10 unclassified files, show:
-
-```
-[DevFlow] Unclassified files (batch 1 of N):
-  1. src/lib/utils/slug.ts
-  2. src/lib/stores/auth.ts
-  ...
-
-For each file, type the node type (entity/service/route/contract/custom) or press Enter to skip:
-```
-
-Collect any typed assignments. These become `confidence: "manual"` nodes.
-
-### Step 6 — AI: intent + classification + edges
-
-**DEVFLOW_AI_MOCK=1 mode:** If `DEVFLOW_AI_MOCK` environment variable equals `1`, read from `~/.devflow/tests/fixtures/ai-responses/df-init-response.json` instead of calling the API. The fixture file contains two top-level keys: `call1` (an array — the intent/classification/edges response) and `call2` (an object with `stack`, `architecture`, and `conventions` keys — the architecture/conventions response). Use `call1` in place of the real Call 1 response and `call2` in place of the real Call 2 response.
+**DEVFLOW_AI_MOCK=1 mode:** If `DEVFLOW_AI_MOCK` environment variable equals `1`, read from `~/.devflow/tests/fixtures/ai-responses/df-init-response.json`. Use `call1` in place of real Call 1 response and `call2` in place of real Call 2 response.
 
 **Real mode:**
 
 Make a single Claude API batch call with:
 - All classified files + their type + first 50 lines of file content (or full file if < 50 lines)
-- All unclassified files + their full content
 - Stack context from scan manifest
 
 Prompt:
@@ -147,11 +167,11 @@ Files:
 Return only the JSON array. No explanation.
 ````
 
-On timeout: wait 5 seconds, retry once. On second failure: write nodes without `intent`, set `confidence: "ai"`, log: `[DevFlow] intent inference skipped — will retry on next df-sync`.
+On timeout: wait 5 seconds, retry once. On second failure: write nodes without `intent`, set `confidence: "ai"`, log T2: `[DevFlow] intent inference skipped — will retry on next df-sync`.
 
 **Call 2 — Architecture/conventions for memory.json:**
 
-Second call using the files listed in `stack_hints.files_found` — these are the files that inform stack, architecture, and conventions (e.g. `Program.cs`, `vite.config.ts`, `appsettings.json`, `.editorconfig`). Pass their full content:
+Second call using `stack_hints.files_found` files. Pass their full content:
 
 ````
 Based on these files from a <stack_runtime> + <stack_frontend> project, infer:
@@ -170,7 +190,7 @@ Return JSON:
 }
 ````
 
-### Step 7 — Assemble memory patch JSON
+### Step 6 — Assemble memory patch JSON
 
 Build the patch JSON to pipe into `df-init --write-memory`:
 
@@ -186,7 +206,7 @@ Build the patch JSON to pipe into `df-init --write-memory`:
     },
     "last_synced": "<head_sha>",
     "schema_version": 1,
-    "node_types": { "custom": ["<any custom types collected in steps 4-5>"] },
+    "node_types": { "custom": [] },
     "edge_staleness_threshold": 30,
     "edge_rel_types": {
       "builtin": ["depends_on", "uses", "persisted_in", "implements", "emits", "handles"],
@@ -236,15 +256,15 @@ Build the patch JSON to pipe into `df-init --write-memory`:
 }
 ```
 
-**Node ID format:** `<type>:<file-path-slug>` where file-path-slug is the file's relative path from repo root with `/` replaced by `.` and the last extension stripped (strip only the last extension, e.g. `slug.test.ts` → `slug.test`, `Auth.svelte.ts` → `Auth.svelte`). Example: `Entities/Comment.cs` → `entity:Entities.Comment`.
+**Node ID format:** `<type>:<file-path-slug>` where file-path-slug is the file's relative path from repo root with `/` replaced by `.` and the last extension stripped. Example: `Entities/Comment.cs` → `entity:Entities.Comment`.
 
-**Edge `from` field:** The `from` field is the node ID of the file that the edge was returned on in Call 1 (the file entry whose `edges` array contained this edge). Derive it using the same ID formula applied to that file's path.
+**Edge `from` field:** The node ID of the file that the edge was returned on in Call 1.
 
 **Edge `to` field:** Map `to_file` paths from call 1 to node IDs using the same ID formula.
 
-**Validation before write:** Check all edge `rel` values are in the allowed set: `depends_on`, `uses`, `persisted_in`, `implements`, `emits`, `handles`, or any values in `config.edge_rel_types.custom`. Skip edges with unrecognized `rel` and log a warning: `[DevFlow] Warning: skipping edge with unknown rel type "<value>"`.
+**Validation:** Check all edge `rel` values are in the allowed set. Skip edges with unrecognized `rel` and T2 inform: `[DevFlow] Warning: skipping edge with unknown rel type "<value>"`.
 
-### Step 8 — Write memory
+### Step 7 — Write memory
 
 Run:
 
@@ -252,10 +272,10 @@ Run:
 echo '<memory-patch-json>' | df-init --write-memory
 ```
 
-If exit code is 0: proceed to Step 9.
-If exit code is 1: show the error output and stop.
+If exit code is 0: proceed to Step 8.
+If exit code is 1: HALT. Show the error output.
 
-### Step 9 — Print verification checklist
+### Step 8 — Print verification checklist
 
 ```
 [DevFlow] Initialization complete.
@@ -266,8 +286,8 @@ If exit code is 1: show the error output and stop.
   ✓ .devflow/branches/<branch_canonicalized>/edges.json written (<N> edges)
   ✓ .devflow/branches/<branch_canonicalized>/memory.md generated
   ✓ .devflow/active symlink → branches/<branch_canonicalized>/
-  ✓ .git/hooks/post-commit installed
-  ✓ .git/hooks/post-checkout installed
+  ✓ .git/hooks/post-commit installed (--quick mode)
+  ✓ .git/hooks/post-checkout installed (--quick mode)
 
 To verify: run `df-init --scan` to confirm the repo is still classified correctly.
 Run `cat .devflow/active/memory.md` to review what DevFlow knows about this repo.
@@ -278,12 +298,12 @@ Run `cat .devflow/active/memory.md` to review what DevFlow knows about this repo
 ## Re-init Mode
 
 If `.devflow/` already exists, this skill runs the same flow but:
-- In Step 6, only pass files with cleared `intent` or new unclassified files to the AI (not the full repo).
-- In Step 8, `df-init --write-memory` automatically preserves `confidence: "manual"` nodes.
+- In Step 5, only pass files with cleared `intent` or new unclassified files to the AI (not the full repo).
+- In Step 7, `df-init --write-memory` automatically preserves `confidence: "manual"` nodes.
 
 ## --reset Mode
 
-If the developer explicitly asks to reset (e.g. "reset DevFlow for this branch"), run:
+If the developer explicitly asks to reset, run:
 
 ```bash
 df-init --reset
@@ -295,31 +315,30 @@ Then re-run the full init flow from Step 1.
 
 ## Guard Rails
 
-1. **Consent before write.** Never write memory without user confirming stack detection.
-2. **Merge, not overwrite.** Re-init merges with existing nodes — never silently deletes them.
-3. **Surface unclassified files.** Never skip the unclassified file batch — they are blind spots.
-4. **Reality check.** If a node is correctly classified and working — leave it. Don't reclassify for the sake of it.
-5. **Decision protocol.** Stack override, custom types, ambiguous files → propose 2-3 options. Let user choose.
+1. **One gate only.** The only T3 gate is the final summary (Step 4). Never add gates before it. — because asking users to confirm machine-derivable data wastes time without adding safety.
+2. **T1 for derivable decisions.** Stack detection, workspace name, file classification are T1 Silent. They are correct or correctable at the final gate. See `skills/_shared.md`.
+3. **T2 for inferences.** Print what was detected before the gate (Step 3). Do not ask for pre-confirmation.
+4. **Merge, not overwrite.** Re-init merges with existing `confidence: "manual"` nodes — never silently deletes them.
+5. **Reality check.** Correctly classified nodes — leave them. Don't reclassify for the sake of it.
 
-## Rationalization Prevention
+## You Will Be Tempted To
 
-| Excuse | Reality |
-|--------|---------|
-| "Re-init fixes stale data" | Re-init merges, not overwrites. Confirm with user. |
-| "AI classification good enough" | Always confirm stack detection with developer. |
-| "Skip unclassified, unimportant" | Unclassified = blind spots. Surface them. |
-| "I know what user wants configured" | Propose options. Let them choose. |
-| "Node looks fine, just update it" | Works correctly → leave it. |
+| Temptation | Reality |
+|------------|---------|
+| "Confirm stack detection before writing" | Auto-detect is correct. Show it in the summary gate instead. |
+| "Ask about custom node types separately" | The summary gate covers all decisions. One gate. |
+| "Show unclassified files batch for review" | Expanded auto-classifiers handle them. If truly ambiguous, show in summary. |
+| "Ask about workspace name" | Derive from git remote or directory name (T1). Show in summary. |
+| "Re-init overwrites everything for safety" | Re-init merges. Manual nodes are preserved. |
 
 ## Red Flags — STOP
 
-- Writing memory without user confirmation of stack detection
-- Overwriting existing node classifications without consent
-- Skipping unclassified file batch
-- Deciding custom node types without offering options
-- Reclassifying nodes that are already correct
+- Writing memory before the T3 summary gate
+- Adding any gate before Step 4
+- Overwriting existing `confidence: "manual"` nodes
+- Asking user to confirm stack detection before the summary
 
-**Stop. Confirm. Then write.**
+**One gate. Final. Then write.**
 
 ---
 
@@ -330,6 +349,6 @@ Then re-run the full init flow from Step 1.
 | "Not a git repo" | Tell developer to run `/init` inside a git repository. |
 | "Missing prerequisite: jq" | Tell developer: `brew install jq` or `apt install jq`. |
 | "Invalid memory patch JSON" | Check your assembled JSON for syntax errors and try again. |
-| AI call timeout (both retries) | Nodes written without intent. Tell developer intent will populate on next `df-sync`. |
+| AI call timeout (both retries) | Nodes written without intent. T2 inform: intent will populate on next `df-sync`. |
 
 Base directory for this skill: ~/.devflow/skills/init
