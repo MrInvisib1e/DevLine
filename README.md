@@ -53,12 +53,10 @@ bin/
 
 ## Installation
 
-### Claude Code
+### Step 1 — Clone the repo
 
 ```bash
-# From a local clone
-git clone https://github.com/<user>/Development-Flow.git ~/.devflow
-/plugin install ~/.devflow
+git clone https://github.com/<your-username>/Development-Flow.git ~/.devflow
 ```
 
 Then add `~/.devflow/bin` to your PATH (skills need the shell scripts):
@@ -66,19 +64,42 @@ Then add `~/.devflow/bin` to your PATH (skills need the shell scripts):
 ```bash
 # Add to ~/.zshrc or ~/.bashrc
 export PATH="$HOME/.devflow/bin:$PATH"
+source ~/.zshrc  # or restart your terminal
 ```
 
-The plugin registers all 8 skills automatically and injects the DevFlow bootstrap at session start. No manual `CLAUDE.md` edits needed.
+### Step 2 — Connect to your AI platform
+
+---
+
+#### Claude Code
+
+Claude Code loads skills referenced in `CLAUDE.md`. Copy the provided template to your user-level config:
+
+```bash
+cat ~/.devflow/CLAUDE.md >> ~/.claude/CLAUDE.md
+```
+
+This tells Claude Code where to find the DevFlow skills. No plugin marketplace needed — skills are loaded on demand when you use `/init`, `/feature`, `/fix`, etc.
+
+**Optional — auto-inject bootstrap at session start:**
+
+If you want DevFlow to announce itself automatically at the start of every Claude Code session (like Superpowers does), you need a GitHub-hosted marketplace repo. Once you've set one up:
+
+```bash
+/plugin marketplace add <your-github-username>/devflow-marketplace
+/plugin install devflow@devflow-marketplace
+```
+
+The marketplace approach runs `hooks/session-start` which injects `skills/using-devflow/SKILL.md` into every session context automatically. Without it, skills still work — they're just loaded on first use rather than pre-announced.
 
 **Verify:**
-```
-/plugin list   # should show devflow
-/init          # run inside any git repo to build the knowledge graph
+```bash
+df-explain --rank   # should print ranked nodes (run inside a git repo after /init)
 ```
 
 ---
 
-### OpenCode
+#### OpenCode
 
 Add to your `opencode.json`:
 ```json
@@ -87,27 +108,29 @@ Add to your `opencode.json`:
 }
 ```
 
-OpenCode also adds `bin/` to PATH automatically — no extra setup.
-
-### Gemini CLI
-
-```bash
-gemini extensions install https://github.com/<user>/Development-Flow
-```
-
-### Codex
-
-See [`.codex/INSTALL.md`](.codex/INSTALL.md) for manual setup.
+OpenCode installs the plugin directly from git and adds `bin/` to PATH automatically. No extra setup.
 
 ---
 
-### npm (future)
+#### Gemini CLI
 
 ```bash
-npm install -g @devflow/skills
+gemini extensions install https://github.com/<your-username>/Development-Flow
 ```
 
-Not yet published — use the git clone method above.
+---
+
+#### Cursor
+
+In Cursor Agent chat, register the marketplace first, then install (requires a published marketplace repo — see Claude Code note above).
+
+Manual fallback: add the skills path to your Cursor CLAUDE.md equivalent.
+
+---
+
+#### Codex
+
+See [`.codex/INSTALL.md`](.codex/INSTALL.md) for manual setup.
 
 ---
 
