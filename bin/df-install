@@ -293,9 +293,56 @@ PYEOF
     fi
   fi
 
+  # 2d. Create slash command files in ~/.claude/commands/
+  local COMMANDS_DIR="${CLAUDE_DIR}/commands"
+
+  declare -A SKILL_DESCS=(
+    [init]="initialize repo with knowledge graph"
+    [feature]="implement a feature (PRD → slices → code)"
+    [fix]="hypothesis-driven bug fix"
+    [review]="architecture-aware code review"
+    [plan]="generate implementation plan"
+    [mem-sync]="sync knowledge graph with latest code changes"
+    [verify]="verify work passes tests/build/lint before claiming complete"
+  )
+
+  if [[ "$DRY_RUN" == true ]]; then
+    info "[dry-run] Would create slash commands in ${COMMANDS_DIR}/"
+  else
+    mkdir -p "$COMMANDS_DIR"
+
+    for skill in init feature fix review plan; do
+      local desc="${SKILL_DESCS[$skill]}"
+      local cmd_file="${COMMANDS_DIR}/${skill}.md"
+      local has_args=false
+      [[ "$skill" == "feature" || "$skill" == "fix" || "$skill" == "plan" ]] && has_args=true
+
+      cat > "$cmd_file" <<CMDF
+---
+description: DevFlow — ${desc}
+---
+Load and follow the DevFlow ${skill} skill from: ${DEVFLOW_ROOT}/skills/${skill}/SKILL.md
+$(${has_args} && echo -e "\nTask: \$ARGUMENTS" || true)
+CMDF
+    done
+
+    # mem-sync and verify — no arguments
+    for skill in mem-sync verify; do
+      local desc="${SKILL_DESCS[$skill]}"
+      cat > "${COMMANDS_DIR}/${skill}.md" <<CMDF
+---
+description: DevFlow — ${desc}
+---
+Load and follow the DevFlow ${skill} skill from: ${DEVFLOW_ROOT}/skills/${skill}/SKILL.md
+CMDF
+    done
+
+    ok "Created slash commands in ${COMMANDS_DIR}/ (init, feature, fix, review, plan, mem-sync, verify)"
+  fi
+
   ok "Claude Code installation complete"
-  info "DevFlow will be active in all new Claude Code sessions"
-  info "Hook injects bootstrap skill at session start automatically"
+  info "DevFlow commands visible in slash command autocomplete (/init, /feature, /fix, /review, /plan, /mem-sync, /verify)"
+  info "Bootstrap skill injected at every session start"
 }
 
 install_opencode() {
