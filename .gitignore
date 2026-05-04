@@ -1,0 +1,8 @@
+# Worktrees
+.worktrees/
+
+# DevFlow memory (local per developer)
+.devflow/
+
+# macOS
+.DS_Store
