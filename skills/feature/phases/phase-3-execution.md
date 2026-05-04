@@ -191,6 +191,48 @@ Ask: "Would you like to: (1) manually implement slice N and mark it done, (2) re
 
 ---
 
+## Agent Dispatch (Slot-Filling)
+
+Before dispatching any agent, fill all slots from `skills/feature/agents/prompts/` templates.
+
+### Slot Sources
+
+| Slot | Source |
+|------|--------|
+| `{{ROLE}}` | Fixed in each template file |
+| `{{MISSION}}` | `slice.title + ": " + slice.description` from slice JSON |
+| `{{SCOPE}}` | `slice.files[]` formatted as bullet list |
+| `{{CONTEXT}}` | `df-explain --rank --budget 512` output + first 100 lines of each scope file |
+| `{{PRIOR_WORK}}` | Previous agent STATUS + SUMMARY (retry only; omit on first attempt) |
+| `{{OUTPUT_CONTRACT}}` | Fixed in each template file |
+
+### Dispatch Order Per Slice
+
+1. Fill implementation template (`prompts/impl.md`)
+2. Dispatch implementation agent (fresh context — do NOT pass orchestrator history)
+3. Run output validation pipeline (see below)
+4. If DONE and validation passes: fill test template, dispatch test agent
+5. If tests PASS: fill slice-review template, dispatch reviewer
+6. CHECKPOINT: record result to slice JSON + plan.md (per Plan 2 rules)
+
+### Output Validation Pipeline
+
+After every agent response, before accepting it:
+
+| Check | Method | On Fail |
+|-------|--------|---------|
+| 1. Format valid | STATUS/VERDICT present in output | → RETRY with format reminder |
+| 2. Paths exist | `[[ -f "$path" ]]` for each FILES_MODIFIED | → RETRY with "file not found" |
+| 3. Scope check | `git diff --name-only` ⊆ allowlist | → RETRY with scope violation |
+| 4. Non-empty | `git diff --stat` has changed lines | → RETRY with "no changes detected" |
+| 5. No stubs | grep for `TODO\|FIXME\|NotImplemented\|pass #\|\.\.\.` | → RETRY with stub locations |
+| 6. retry_count >= 3 | — | → mark STUCK, T3 Gate |
+
+Checks 1-4 are mandatory. Check 5 is soft (log warning, don't block on first occurrence).
+All checks are zero-LLM-cost (filesystem + git operations).
+
+---
+
 ### Phase 3 Orchestrator Decision Table
 
 | Agent Result | Tests Pass? | Retry Count | Action |
