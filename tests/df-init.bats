@@ -310,7 +310,7 @@ _build_patch() {
   bash -c "cd '$REPO' && printf '%s' '$patch' | '$DF_INIT' --write-memory"
 
   local count
-  count=$(grep -c "^df-sync$" "$REPO/.git/hooks/post-commit")
+  count=$(grep -c "^df-sync" "$REPO/.git/hooks/post-commit")
   [ "$count" -eq 1 ]
 }
 

@@ -130,6 +130,61 @@ sync_edges_to_db() {
   done < <(printf '%s' "$edges_json" | jq -c '.[]?' 2>/dev/null || true)
 }
 
+# ─── content-hash caching ─────────────────────────────────────────────────────
+
+file_content_hash() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" 2>/dev/null | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" 2>/dev/null | awk '{print $1}'
+  else
+    # Fallback: use file size + mtime as pseudo-hash
+    stat -f '%z-%m' "$file" 2>/dev/null || stat -c '%s-%Y' "$file" 2>/dev/null || echo "nohash"
+  fi
+}
+
+ensure_cache_dir() {
+  local cache_dir="${DEVFLOW_DIR}/cache"
+  mkdir -p "$cache_dir"
+  local cache_file="${cache_dir}/content-hashes.json"
+  [[ -f "$cache_file" ]] || printf '{}' > "$cache_file"
+  echo "$cache_file"
+}
+
+is_cache_hit() {
+  local file="$1"
+  local cache_file="${DEVFLOW_DIR}/cache/content-hashes.json"
+  [[ -f "$cache_file" ]] || return 1
+  local stored_hash
+  stored_hash=$(jq -r --arg f "$file" '.[$f].content_hash // ""' "$cache_file" 2>/dev/null || echo "")
+  [[ -z "$stored_hash" ]] && return 1
+  local current_hash
+  current_hash=$(file_content_hash "$file")
+  [[ "$stored_hash" = "$current_hash" ]]
+}
+
+update_cache_entry() {
+  local file="$1"
+  local head_sha="$2"
+  local cache_file
+  cache_file=$(ensure_cache_dir)
+  local hash
+  hash=$(file_content_hash "$file")
+  local tmp="${cache_file}.tmp"
+  jq --arg f "$file" --arg h "$hash" --arg s "$head_sha" \
+    '.[$f] = {content_hash: $h, api_hash: $h, last_synced: $s}' \
+    "$cache_file" > "$tmp" 2>/dev/null && mv "$tmp" "$cache_file" || true
+}
+
+invalidate_cache() {
+  # Called with --force to clear all cache entries
+  local cache_file="${DEVFLOW_DIR}/cache/content-hashes.json"
+  if [[ -f "$cache_file" ]]; then
+    printf '{}' > "$cache_file"
+  fi
+}
+
 # ─── lock ─────────────────────────────────────────────────────────────────────
 
 acquire_lock() {
@@ -586,6 +641,7 @@ prune_graph() {
 _do_sync() {
   local force="$1"
   local all_flag="$2"
+  local quick="${3:-false}"
 
   local branch
   branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
@@ -616,6 +672,8 @@ _do_sync() {
   if [[ "$force" = "true" ]] || [[ -z "$last_synced" ]]; then
     mapfile -t changed_files < <(git ls-files | grep -v '^\.devflow/')
     deleted_files=""
+    # Invalidate cache on force sync
+    [[ "$force" = "true" ]] && invalidate_cache
   else
     local diff_out diff_del_out
     if ! diff_out=$(git diff --name-only --diff-filter=ACMR "${last_synced}..HEAD" 2>/dev/null); then
@@ -665,6 +723,10 @@ _do_sync() {
     [[ -z "$f" ]] && continue
     # Skip .devflow internal files (config, nodes, edges, symlinks)
     [[ "$f" == .devflow/* ]] && continue
+    # Skip files whose content hasn't changed (cache hit)
+    if [[ "$force" != "true" ]] && is_cache_hit "$f"; then
+      continue
+    fi
     local ftype
     ftype=$(classify_file "$f" "$classifiers")
     [[ "$ftype" = "architecture" || "$ftype" = "conventions" ]] && continue
@@ -682,6 +744,9 @@ _do_sync() {
     local file_edges
     file_edges=$(static_edges "$f" "$node_id")
     all_static_edges=$(jq -n --argjson a "$all_static_edges" --argjson b "$file_edges" '$a + $b')
+
+    # Update content hash cache for this file
+    update_cache_entry "$f" "$head_sha"
   done
 
   # Staleness sweep
@@ -690,9 +755,13 @@ _do_sync() {
   nodes_json=$(printf '%s' "$sweep_result" | jq '.[0]')
   edges_json=$(printf '%s' "$sweep_result" | jq '.[1]')
 
-  # AI batch
+  # AI batch (skip in quick mode)
   local ai_results
-  ai_results=$(ai_batch)
+  if [[ "$quick" = "true" ]]; then
+    ai_results="[]"
+  else
+    ai_results=$(ai_batch)
+  fi
 
   # Extract AI edges
   local ai_edges="[]"
@@ -780,30 +849,41 @@ _do_sync() {
 cmd_sync() {
   local force=false
   local all_flag=false
+  local quick=false
+  local branch_switch=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --force) force=true; shift ;;
-      --all)   all_flag=true; shift ;;
+      --force)         force=true; shift ;;
+      --all)           all_flag=true; shift ;;
+      --quick)         quick=true; shift ;;
+      --branch-switch) branch_switch=true; shift ;;
       *) shift ;;
     esac
   done
+
+  # --branch-switch can be combined with --quick (e.g. post-checkout hook)
+  if [[ "$branch_switch" = "true" ]]; then
+    cmd_branch_switch "$quick"
+    return
+  fi
 
   check_prereqs
   [[ ! -d "$DEVFLOW_DIR" ]] && exit 0  # CI mode
 
   acquire_lock
 
-  if [[ "${DEVFLOW_AI_MOCK:-}" != "1" ]]; then
+  if [[ "$quick" != "true" ]] && [[ "${DEVFLOW_AI_MOCK:-}" != "1" ]]; then
     err "Note: AI enrichment is not configured. Graph nodes will have no intent annotations."
     err "Set DEVFLOW_AI_MOCK=1 with DEVFLOW_AI_MOCK_FILE=<path> for testing."
   fi
 
-  _do_sync "$force" "$all_flag"
+  _do_sync "$force" "$all_flag" "$quick"
 }
 
 # ─── cmd_branch_switch ───────────────────────────────────────────────────────
 
 cmd_branch_switch() {
+  local quick="${1:-false}"
   check_prereqs
   [[ ! -d "$DEVFLOW_DIR" ]] && exit 0  # CI mode
 
@@ -908,7 +988,7 @@ cmd_branch_switch() {
   done
 
   # Run sync on new branch
-  _do_sync "false" "false"
+  _do_sync "false" "false" "$quick"
 }
 
 # ─── cmd_version ─────────────────────────────────────────────────────────────
@@ -923,17 +1003,11 @@ cmd_version() {
 case "${1:-}" in
   --version)        cmd_version ;;
   --branch-switch)  cmd_branch_switch ;;
-  --force)
-    shift
-    if [[ "${1:-}" = "--all" ]]; then
-      cmd_sync --force --all
-    else
-      cmd_sync --force
-    fi
-    ;;
+  --force)          cmd_sync "$@" ;;
+  --quick)          cmd_sync "$@" ;;
   "")               cmd_sync ;;
   *)
-    err "Unknown command: $1. Usage: df-sync [--version|--force [--all]|--branch-switch]"
+    err "Unknown command: $1. Usage: df-sync [--version|--force [--all]|--branch-switch|--quick]"
     exit 1
     ;;
 esac
