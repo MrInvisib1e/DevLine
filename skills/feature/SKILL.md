@@ -136,7 +136,7 @@ Read ONLY the phase file you need right now. Do not pre-load future phases.
 | E08 | Worktree creation fails | Report error, ask to retry or use sequential mode |
 | E09 | Merge conflict unresolvable | Run df-resolve, escalate to user |
 | E10 | `/feature resume` with no active plan | HALT — "No active feature. Use `/feature` to start one" |
-| E11 | Final review CHANGES_REQUESTED | Re-open affected slices, re-run; escalate to user after >2 cycles |
+| E11 | Final review FAIL | Re-open affected slices, re-run; escalate to user after >2 cycles |
 | E12 | Slice JSON corrupted or unreadable | Report specific file; ask user to fix or reset slice |
 | E13 | df-explain fails | Warn and proceed with degraded analysis |
 | E14 | Integration test persistent failure | Report specific failures; ask user to fix or override |

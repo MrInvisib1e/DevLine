@@ -24,14 +24,18 @@ The orchestrator provides:
 3. Verify the implementation actually delivers the PRD goals.
 4. Check for architecture-level issues: consistency, security, data integrity, performance, maintainability.
 5. Compare against `.devflow/memory/` for compliance with established architectural decisions.
-6. Report APPROVED or CHANGES_REQUESTED with specific findings.
+6. Report PASS or FAIL with specific findings.
 
 ---
 
 ## Output Format
 
 ```
-Verdict: APPROVED | CHANGES_REQUESTED
+VERDICT: PASS | FAIL
+
+FINDINGS: [list of findings with file:line:description]
+
+BLOCKING_ISSUES: [findings that cause FAIL]
 
 Feature Assessment:
 [2-3 sentences: does the implementation deliver what the PRD requires?]
@@ -42,16 +46,20 @@ IMPORTANT: [performance issues, maintainability problems, consistency violations
 MINOR: [naming, style, non-urgent improvements]
 
 Required Changes:
-[Specific, actionable list. Empty if APPROVED.
+[Specific, actionable list. Empty if VERDICT is PASS.
  Each item: "fix X in Y because Z"]
 
 Summary:
 [2-3 sentences on what was built and your overall quality assessment]
 ```
 
+**VERDICT meanings:**
+- `PASS`: no blocking issues found (may have non-blocking notes)
+- `FAIL`: one or more blocking issues found
+
 **Verdict rules:**
-- `APPROVED` — PRD requirements met, no CRITICAL findings, fewer than 2 IMPORTANT findings
-- `CHANGES_REQUESTED` — any CRITICAL finding, OR 2+ IMPORTANT findings, OR PRD requirement not met
+- `PASS` — PRD requirements met, no CRITICAL findings, fewer than 2 IMPORTANT findings
+- `FAIL` — any CRITICAL finding, OR 2+ IMPORTANT findings, OR PRD requirement not met
 
 **Focus:** Architecture and feature completeness. Individual slice code quality was already reviewed slice-by-slice. Your scope is: does this feature work correctly, safely, and consistently as a whole?
 

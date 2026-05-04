@@ -40,11 +40,7 @@ Update `slice-N.json`:
 
 #### Step 3: Handle Implementation Result
 
-**DONE:** Proceed to Step 4.
-
-**DONE_WITH_CONCERNS:** Read concerns. If correctness-blocking → treat as BLOCKED. Otherwise → proceed to Step 4 and note concerns.
-
-**NEEDS_CONTEXT:** Provide the missing context (check `plan.md`, `df-explain` output). Re-dispatch the same agent.
+**DONE:** Proceed to Step 4. If CONCERNS field is non-empty, log them to `slice-N.json → concerns` and proceed — concerns are non-blocking. The reviewer decides if any are blocking.
 
 **BLOCKED:**
 - If context problem → provide context, re-dispatch
@@ -119,6 +115,20 @@ On FAIL:
 1. Read `review_findings.required_changes` from the Slice Review Report
 2. Increment `cycle` in `slice-N.json`
 3. If `cycle > max_cycles`: mark `status: "stuck"`, skip this slice, continue
+
+### Issue Fingerprinting (Anti-Cycling)
+
+Track fingerprints across retry cycles: `<file>:<line>:<category>` hash.
+
+| After retry N | Finding delta | Classification | Action |
+|--------------|---------------|---------------|--------|
+| Any | No issues | CLEAN | → done |
+| Retry 2+ | Fewer issues than last | PROGRESS | → continue retrying |
+| Retry 2+ | Some resolved, some new | MIXED | → continue, escalate faster |
+| Retry 2+ | Same issues persist | STALLED | → mark stuck immediately |
+| Retry 2+ | New issues + old persist | REGRESSION | → mark stuck immediately |
+
+On STALLED or REGRESSION: mark slice as stuck immediately. Do not consume remaining retry budget.
 
 Retry dispatch — combine:
 - `agents/implementation.md` — role

@@ -29,7 +29,11 @@ The orchestrator provides:
 ## Output Format
 
 ```
-Status: DONE | DONE_WITH_CONCERNS | BLOCKED
+VERDICT: PASS | FAIL
+
+FILES_MODIFIED: path1, path2, ...
+
+SUMMARY: <one sentence>
 
 Cross-Slice Interactions Verified:
 - [scenario 1: e.g., "create then delete roundtrip"]
@@ -45,14 +49,12 @@ Regressions:
 [Any tests that PREVIOUSLY PASSED but now FAIL. List test names and failure reason.
  Write "None" if no regressions found.]
 
-Issues:
-[Only if DONE_WITH_CONCERNS or BLOCKED. Be specific.]
+CONCERNS: <optional — list any coverage gaps or doubts, won't block progression>
 ```
 
-**Status definitions:**
-- `DONE` — cross-slice tests written, full suite passes, no regressions
-- `DONE_WITH_CONCERNS` — suite passes but there are notable coverage gaps or minor regressions in non-critical tests
-- `BLOCKED` — cannot run tests (environment issue, missing dependency)
+**VERDICT meanings:**
+- `PASS`: cross-slice tests written, full suite passes, no regressions
+- `FAIL`: suite failures, regressions, or cannot run tests (specify blocker in SUMMARY)
 
 ---
 

@@ -32,6 +32,22 @@ Scan batches in order:
    - COMPLETE → check `## Phase 5 Status`: not COMPLETE → resume at Phase 5
    - Phase 5 COMPLETE → run Phase 6
 
+### Resume Point Decision Table
+
+| State found in plan.md | Action |
+|-----------------------|--------|
+| Phase 6 complete | → T2 Inform: feature already complete |
+| Phase 5: PASS recorded | → resume at Phase 6 |
+| Phase 4: PASS recorded | → resume at Phase 5 |
+| Phase 3: all slices DONE/PASS | → resume at Phase 4 |
+| Phase 3: some slices in progress | → read steps[].done for those slices, resume within Phase 3 |
+| Phase 2: slices defined, none started | → resume at Phase 3 |
+| Phase 0/1: no slices defined | → resume at Phase 0 |
+| plan.md missing or empty | → HALT. Print: "Cannot resume — no plan found. Start fresh with /feature." |
+| DEFAULT | → resume at earliest incomplete phase |
+
+CHECKPOINT: "[DevFlow] Resuming at: Phase <N>, Slice <name if applicable>"
+
 ### Step 4: Show Resume Status
 
 ```

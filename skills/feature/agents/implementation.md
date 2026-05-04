@@ -44,30 +44,18 @@ If you see a **## Prior Work** section at the top of your instructions:
 Report back using EXACTLY this format:
 
 ```
-Status: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
+STATUS: DONE | BLOCKED
 
-What I Implemented:
-[2-5 sentences describing what was built: entities, services, endpoints, components]
+FILES_MODIFIED: path1, path2, ...
 
-Tests:
-[Test command you ran] → [result: PASS (N/N) or FAIL (N/N)]
+SUMMARY: <one sentence>
 
-Files Changed:
-- path/to/file.ext — [one-line description of what changed]
-- path/to/file.ext — [one-line description]
-
-Self-Review:
-[1-3 sentences: honest assessment — what's solid, what's approximate, any known gaps]
-
-Issues / Concerns:
-[Only if DONE_WITH_CONCERNS or BLOCKED. Be specific.]
+CONCERNS: <optional — list any doubts, won't block progression>
 ```
 
-**Status definitions:**
-- `DONE` — implemented, tests pass, committed, nothing notable to flag
-- `DONE_WITH_CONCERNS` — tests pass but there is a known limitation worth flagging
-- `NEEDS_CONTEXT` — you cannot proceed without a specific piece of information (state exactly what you need)
-- `BLOCKED` — you cannot proceed due to missing dependency, environment issue, or broken prerequisite (state exactly what is blocking you)
+**STATUS meanings:**
+- `DONE`: implementation complete, tests pass
+- `BLOCKED`: cannot proceed — specify exact blocker in SUMMARY
 
 ---
 

@@ -14,14 +14,14 @@ Wait for Final Review Report.
 
 ### Step 2: Handle Result
 
-**APPROVED:** Proceed to Phase 6. Record `## Phase 5 Status: COMPLETE` in `plan.md`.
+**PASS:** Proceed to Phase 6. Record `## Phase 5 Status: COMPLETE` in `plan.md`.
 
-**CHANGES_REQUESTED:**
-- Read required changes
+**FAIL:**
+- Read BLOCKING_ISSUES and Required Changes
 - Determine which slices are affected
 - Re-open affected slices: reset `status: "pending"`, create new slice JSON/MD for fix if needed
 - Re-run Phase 3 for affected slices only
 - Re-run Phase 5 after fixes
-- If CHANGES_REQUESTED after >2 cycles: escalate to user — present all findings and ask for direction
+- If FAIL after >2 cycles: escalate to user — present all findings and ask for direction
 
 Write final review result to `plan.md` under `## Final Review`.

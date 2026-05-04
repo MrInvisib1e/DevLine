@@ -36,7 +36,11 @@ The orchestrator provides:
 ## Output Format
 
 ```
-Status: DONE | DONE_WITH_CONCERNS | BLOCKED
+STATUS: DONE | BLOCKED
+
+FILES_MODIFIED: path1, path2, ...
+
+SUMMARY: <one sentence>
 
 Tests Written:
 - path/to/test-file.spec.ts — [what user scenario this covers]
@@ -48,14 +52,12 @@ Test Results:
 Coverage Notes:
 [What happy paths and edge cases are covered. Any scenarios intentionally not tested and why.]
 
-Concerns:
-[Only if DONE_WITH_CONCERNS or BLOCKED. Be specific.]
+CONCERNS: <optional — list any coverage gaps or doubts, won't block progression>
 ```
 
-**Status definitions:**
-- `DONE` — tests written, test_cmd passes, coverage is adequate
-- `DONE_WITH_CONCERNS` — tests pass but coverage has notable gaps (explain them)
-- `BLOCKED` — cannot write or run tests (state exactly why)
+**STATUS meanings:**
+- `DONE`: tests written, test_cmd passes
+- `BLOCKED`: cannot proceed — specify exact blocker in SUMMARY
 
 ---
 

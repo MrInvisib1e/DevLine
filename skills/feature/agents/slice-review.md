@@ -30,7 +30,11 @@ The orchestrator provides:
 ## Output Format
 
 ```
-Verdict: PASS | FAIL
+VERDICT: PASS | FAIL
+
+FINDINGS: [list of findings with file:line:description]
+
+BLOCKING_ISSUES: [findings that cause FAIL]
 
 Spec Compliance:
 - [✅|❌] Result matches slice MD Expected Result
@@ -48,9 +52,13 @@ Test Adequacy:
 
 Required Changes:
 [Specific, actionable list of what must be fixed before this slice is DONE.
- Empty if verdict is PASS.
+ Empty if VERDICT is PASS.
  Each item must be a concrete instruction: "do X to Y in Z file"]
 ```
+
+**VERDICT meanings:**
+- `PASS`: no blocking issues found (may have non-blocking notes)
+- `FAIL`: one or more blocking issues found
 
 **Verdict rules:**
 - `PASS` — spec compliant, no CRITICAL findings, fewer than 2 IMPORTANT findings
