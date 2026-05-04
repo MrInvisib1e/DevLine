@@ -364,65 +364,77 @@ render_memory_md() {
   local branch_dir="$1"
   local memory_json="${branch_dir}/memory.json"
   local nodes_json_file="${branch_dir}/nodes.json"
+  local graph_db="${DEVFLOW_DIR}/graph.db"
 
-  local stack_runtime stack_frontend
+  # Section 1: Stack
+  local stack_runtime stack_frontend test_cmd
   stack_runtime=$(jq -r '.stack.runtime // "unknown"' "$memory_json" 2>/dev/null || echo "unknown")
-  stack_frontend=$(jq -r '.stack.frontend // "unknown"' "$memory_json" 2>/dev/null || echo "unknown")
+  stack_frontend=$(jq -r '.stack.frontend // ""' "$memory_json" 2>/dev/null || echo "")
+  test_cmd=$(jq -r '.stack.test_cmd // ""' "$memory_json" 2>/dev/null || echo "")
+  local head_sha
+  head_sha=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+  local node_count edge_count
+  node_count=$(jq '.nodes | length' "$nodes_json_file" 2>/dev/null || echo "0")
+  edge_count=$(jq '.edges | length' "${branch_dir}/edges.json" 2>/dev/null || echo "0")
 
-  printf '%s\n\n' '# DevFlow Memory'
-  printf '%s\n\n' '## Stack'
-  printf -- '- Runtime: %s\n' "$stack_runtime"
-  printf -- '- Frontend: %s\n\n' "$stack_frontend"
-  printf '%s\n\n' '## Graph'
+  printf '# DevFlow Memory\n\n'
+  printf '<!-- Generated: %s | Nodes: %s | Edges: %s -->\n\n' "$head_sha" "$node_count" "$edge_count"
+  printf '## Stack\n\n'
+  printf '%s\n' "- Runtime: ${stack_runtime}"
+  [[ -n "$stack_frontend" ]] && printf '%s\n' "- Frontend: ${stack_frontend}"
+  [[ -n "$test_cmd" ]] && printf '%s\n' "- Test: ${test_cmd}"
+  printf '\n'
 
-  local summary_count=0
-  local full_lines=()
+  # Section 2: Top Nodes by PageRank (or by inbound edge count from SQLite)
+  printf '## Top Nodes\n\n'
+  local token_count=150  # section 1 overhead
+  local max_node_tokens=2000
 
-  for node_type in route entity service contract; do
-    while IFS= read -r node_line; do
-      [[ -z "$node_line" ]] && continue
-      local node_id node_intent node_stale stale_marker
-      node_id=$(printf '%s' "$node_line" | jq -r '.id')
-      node_intent=$(printf '%s' "$node_line" | jq -r '.intent // ""')
-      node_stale=$(printf '%s' "$node_line" | jq -r '.stale // false')
-      stale_marker=""
-      [[ "$node_stale" = "deleted" ]] && stale_marker=" [DELETED]"
-      [[ "$node_stale" = "aged" ]] && stale_marker=" [UNVERIFIED]"
-      local line="${node_id}${stale_marker}: ${node_intent}"
-      if [[ $summary_count -lt 30 ]]; then
-        printf '%s\n' "$line"
-        ((summary_count++)) || true
-      else
-        full_lines+=("$line")
+  if [[ -f "$graph_db" ]] && command -v sqlite3 >/dev/null 2>&1; then
+    # Rank by inbound edge count (proxy for PageRank)
+    while IFS='|' read -r nid nkind nfile; do
+      [[ -z "$nid" ]] && continue
+      local line="${nid} [${nkind}] ${nfile}"
+      local line_tokens=$(( ${#line} / 4 + 2 ))
+      if [[ $(( token_count + line_tokens )) -gt $max_node_tokens ]]; then
+        break
       fi
-    done < <(jq -c --arg t "$node_type" '.nodes[] | select(.type == $t)' "$nodes_json_file" 2>/dev/null || true)
-  done
-
-  # Any remaining types
-  while IFS= read -r node_line; do
-    [[ -z "$node_line" ]] && continue
-    local node_id node_intent node_stale stale_marker
-    node_id=$(printf '%s' "$node_line" | jq -r '.id')
-    node_intent=$(printf '%s' "$node_line" | jq -r '.intent // ""')
-    node_stale=$(printf '%s' "$node_line" | jq -r '.stale // false')
-    stale_marker=""
-    [[ "$node_stale" = "deleted" ]] && stale_marker=" [DELETED]"
-    [[ "$node_stale" = "aged" ]] && stale_marker=" [UNVERIFIED]"
-    local line="${node_id}${stale_marker}: ${node_intent}"
-    if [[ $summary_count -lt 30 ]]; then
-      printf '%s\n' "$line"
-      ((summary_count++)) || true
-    else
-      full_lines+=("$line")
-    fi
-  done < <(jq -c '.nodes[] | select(.type != "route" and .type != "entity" and .type != "service" and .type != "contract")' "$nodes_json_file" 2>/dev/null || true)
-
-  if [[ ${#full_lines[@]} -gt 0 ]]; then
-    printf '\n<!-- full-graph -->\n'
-    for fl in "${full_lines[@]}"; do
-      printf '%s\n' "$fl"
-    done
+      printf '%s\n' "- ${line}"
+      token_count=$(( token_count + line_tokens ))
+    done < <(sqlite3 "$graph_db" \
+      "SELECT n.id, n.kind, n.file_id FROM nodes n
+       LEFT JOIN edges e ON e.target = n.id
+       GROUP BY n.id
+       ORDER BY COUNT(e.source) DESC
+       LIMIT 100;" 2>/dev/null || true)
+  else
+    # Fallback: read from nodes.json sorted by type
+    jq -r '.nodes[] | "- \(.id) [\(.type)] \(.file // "")"' \
+      "$nodes_json_file" 2>/dev/null | head -50 || true
   fi
+  printf '\n'
+
+  # Section 3: Edge Summary
+  printf '## Edge Summary\n\n'
+  if [[ -f "$graph_db" ]] && command -v sqlite3 >/dev/null 2>&1; then
+    local ext_count inf_count amb_count
+    ext_count=$(sqlite3 "$graph_db" \
+      "SELECT COUNT(*) FROM edges WHERE confidence >= 1.0;" 2>/dev/null || echo "0")
+    inf_count=$(sqlite3 "$graph_db" \
+      "SELECT COUNT(*) FROM edges WHERE confidence >= 0.5 AND confidence < 1.0;" 2>/dev/null || echo "0")
+    amb_count=$(sqlite3 "$graph_db" \
+      "SELECT COUNT(*) FROM edges WHERE confidence < 0.5;" 2>/dev/null || echo "0")
+    printf 'EXTRACTED: %s  INFERRED: %s  AMBIGUOUS: %s\n\n' \
+      "$ext_count" "$inf_count" "$amb_count"
+  else
+    printf 'Total edges: %s\n\n' "$edge_count"
+  fi
+
+  # Section 4: Drill-down
+  printf '## Drill-down\n\n'
+  printf 'Run `df-explain --rank` for full ranked graph.\n'
+  printf 'Run `df-explain <node-id>` for a specific node.\n'
+  printf 'Run `df-explain --diff HEAD~5 HEAD` to see recent graph changes.\n'
 }
 
 # ─── AI batch ─────────────────────────────────────────────────────────────────
@@ -558,6 +570,22 @@ patch_edges() {
     ))) + $new_e'
 }
 
+# ─── batch git log for staleness ──────────────────────────────────────────────
+
+_batch_changed_files_since() {
+  # Returns JSON object: {"file/path": commit_count, ...}
+  local oldest_sha="$1"
+
+  [[ -z "$oldest_sha" ]] && echo '{}' && return
+
+  git log --name-only --pretty=format:'' "${oldest_sha}..HEAD" 2>/dev/null |
+    grep -v '^$' |
+    sort | uniq -c |
+    awk '{print $2 "\t" $1}' |
+    jq -Rn '[inputs | split("\t") | {(.[0]): (.[1] | tonumber)}] | add // {}' \
+    2>/dev/null || echo '{}'
+}
+
 # ─── staleness sweep ──────────────────────────────────────────────────────────
 
 staleness_sweep() {
@@ -577,6 +605,14 @@ staleness_sweep() {
     ')
 
   # Soft stale: count commits since last_seen for each node
+  # Build changed-file map once (batch, not per-node)
+  local oldest_sha=""
+  oldest_sha=$(printf '%s' "$nodes_json_str" | jq -r '[.[] | .last_seen // ""] | map(select(length > 0)) | sort | first // ""' 2>/dev/null || echo "")
+  local changed_map="{}"
+  if [[ -n "$oldest_sha" ]]; then
+    changed_map=$(_batch_changed_files_since "$oldest_sha")
+  fi
+
   local nodes_count
   nodes_count=$(printf '%s' "$updated_nodes" | jq 'length')
   local i=0
@@ -591,7 +627,7 @@ staleness_sweep() {
     node_file=$(printf '%s' "$updated_nodes" | jq -r ".[$i].file")
     if [[ -n "$node_last_seen" && "$node_last_seen" != "null" ]]; then
       local commit_count
-      commit_count=$(git log --oneline "${node_last_seen}..HEAD" -- "$node_file" 2>/dev/null | wc -l | tr -d ' ') || commit_count=0
+      commit_count=$(printf '%s' "$changed_map" | jq -r --arg f "$node_file" '.[$f] // 0' 2>/dev/null || echo 0)
       commit_count="${commit_count:-0}"
       if [[ "$commit_count" -ge "$threshold" ]]; then
         updated_nodes=$(printf '%s' "$updated_nodes" | jq \
