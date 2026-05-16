@@ -6,7 +6,7 @@
     "frontend": null,
     "test_cmd": "bats tests/"
   },
-  "last_synced": "614a0b05d17d3e311b8dc865c850204a38ddf136",
+  "last_synced": "ab205eaa885c021756023b500ff18d7b1e1e099f",
   "schema_version": 1,
   "node_types": {
     "custom": []

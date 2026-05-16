@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# df-benchmark — A/B test DevFlow skills against falsifiable assertions
+# Usage:
+#   df-benchmark run --scenario <name> --skill <skill-name> [--mode control|treatment]
+#   df-benchmark list
+#   df-benchmark show <benchmark-name>
+#   df-benchmark rerun <benchmark-name>
+# Status: stub (v4.0) — grading is manual; automated replay planned for v4.1
+
+set -euo pipefail
+
+VERSION="4.0.0"
+DEVFLOW_DIR="$(git rev-parse --show-toplevel 2>/dev/null)/.devflow" 2>/dev/null || DEVFLOW_DIR=".devflow"
+BENCHMARK_DIR="$DEVFLOW_DIR/benchmark"
+
+cmd="${1:-help}"
+shift 2>/dev/null || true
+
+case "$cmd" in
+  --version|-v)
+    echo "DevFlow df-benchmark $VERSION"
+    exit 0
+    ;;
+
+  list)
+    echo "[df-benchmark] Saved benchmarks:"
+    if [ -d "$BENCHMARK_DIR" ]; then
+      for d in "$BENCHMARK_DIR"/*/; do
+        name=$(basename "$d")
+        [ "$name" = "scenarios" ] && continue
+        latest=$(ls -t "$d/results/" 2>/dev/null | head -1 || echo "no runs yet")
+        echo "  $name  (last run: $latest)"
+      done
+    else
+      echo "  (none — run df-benchmark run to create one)"
+    fi
+    ;;
+
+  show)
+    name="${1:-}"
+    [ -z "$name" ] && { echo "Usage: df-benchmark show <benchmark-name>"; exit 1; }
+    result_dir="$BENCHMARK_DIR/$name/results"
+    if [ -d "$result_dir" ]; then
+      latest=$(ls -t "$result_dir" | head -1)
+      if [ -n "$latest" ]; then
+        cat "$result_dir/$latest"
+      else
+        echo "[df-benchmark] No results for $name yet."
+      fi
+    else
+      echo "[df-benchmark] Benchmark '$name' not found."
+      exit 1
+    fi
+    ;;
+
+  run)
+    SCENARIO=""
+    SKILL=""
+    MODE="treatment"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --scenario) SCENARIO="$2"; shift 2 ;;
+        --skill) SKILL="$2"; shift 2 ;;
+        --mode) MODE="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+
+    [ -z "$SCENARIO" ] && { echo "Error: --scenario required"; exit 1; }
+
+    echo "[df-benchmark] STUB — automated replay not yet implemented."
+    echo ""
+    echo "Manual procedure:"
+    echo "  1. Scenario: $SCENARIO"
+    echo "  2. Mode:     $MODE"
+    [ -n "$SKILL" ] && echo "  3. Skill:    $SKILL (load this skill before running)"
+    echo ""
+    echo "  Run the scenario described in:"
+
+    # Look for scenario in named benchmark dir first, then shared scenarios dir
+    scenario_file="$BENCHMARK_DIR/$SCENARIO/scenario.md"
+    if [ ! -f "$scenario_file" ]; then
+      scenario_file="$BENCHMARK_DIR/scenarios/$SCENARIO.md"
+    fi
+
+    if [ -f "$scenario_file" ]; then
+      echo "  $scenario_file"
+      echo ""
+      echo "  Then record results in:"
+      mkdir -p "$BENCHMARK_DIR/$SCENARIO/results"
+      ts=$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null || date +%Y%m%dT%H%M%SZ)
+      result_file="$BENCHMARK_DIR/$SCENARIO/results/${ts}-${MODE}.json"
+      echo "  $result_file"
+      echo ""
+      echo "  Template:"
+      cat <<EOF
+{
+  "benchmark": "$SCENARIO",
+  "mode": "$MODE",
+  "skill": "${SKILL:-null}",
+  "timestamp": "$ts",
+  "assertions": [
+    { "id": "a1", "description": "...", "result": "PASS|FAIL", "evidence": "..." }
+  ],
+  "verdict": "IMPROVEMENT|NO_CHANGE|REGRESSION",
+  "notes": ""
+}
+EOF
+    else
+      echo "  (scenario file not found — create $scenario_file)"
+    fi
+    ;;
+
+  rerun)
+    name="${1:-}"
+    [ -z "$name" ] && { echo "Usage: df-benchmark rerun <benchmark-name>"; exit 1; }
+    # Load last run parameters and echo the run command
+    result_dir="$BENCHMARK_DIR/$name/results"
+    latest=$(ls -t "$result_dir" 2>/dev/null | head -1 || echo "")
+    if [ -n "$latest" ]; then
+      skill=$(python3 -c "import json; d=json.load(open('$result_dir/$latest')); print(d.get('skill',''))" 2>/dev/null || echo "")
+      mode=$(python3 -c "import json; d=json.load(open('$result_dir/$latest')); print(d.get('mode','treatment'))" 2>/dev/null || echo "treatment")
+      echo "[df-benchmark] Re-running: df-benchmark run --scenario $name --mode $mode${skill:+ --skill $skill}"
+      exec "$0" run --scenario "$name" --mode "$mode" ${skill:+--skill "$skill"}
+    else
+      echo "[df-benchmark] No previous run for '$name' to re-run."
+      exit 1
+    fi
+    ;;
+
+  help|--help|-h|"")
+    cat <<'EOF'
+df-benchmark — A/B test DevFlow skills with falsifiable assertions
+
+Usage:
+  df-benchmark run --scenario <name> --skill <name> [--mode control|treatment]
+  df-benchmark list
+  df-benchmark show <name>
+  df-benchmark rerun <name>
+
+Examples:
+  df-benchmark run --scenario tdd-pressure --skill tdd --mode treatment
+  df-benchmark run --scenario tdd-pressure --mode control
+  df-benchmark list
+  df-benchmark show tdd-pressure
+
+See skills/df-benchmark/SKILL.md for full documentation.
+EOF
+    ;;
+
+  *)
+    echo "Unknown command: $cmd"
+    echo "Run: df-benchmark --help"
+    exit 1
+    ;;
+esac

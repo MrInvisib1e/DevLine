@@ -1,22 +1,40 @@
 #!/usr/bin/env bats
 
 # ─── helpers ───────────────────────────────────────────────────────────────────
+#
+# df-explain v4 tests — thin MCP wrapper
+#
+# In v4, df-explain delegates to codebase-memory-mcp CLI.
+# Tests use DEVFLOW_MCP_MOCK=1 to stub MCP responses.
+#
+# The mock returns predictable JSON/text so we can test argument routing
+# and output formatting without a real MCP server running.
 
 setup() {
   export REPO
   REPO="$(mktemp -d)"
   (cd "$REPO" && git init -b main && git config user.email "t@t.com" && git config user.name "T" && git commit --allow-empty -m "initial" --quiet)
-  # Install devflow memory structure
-  mkdir -p "$REPO/.devflow/branches/main"
-  cp "$BATS_TEST_DIRNAME/fixtures/sample-memory/nodes.json" "$REPO/.devflow/branches/main/nodes.json"
-  cp "$BATS_TEST_DIRNAME/fixtures/sample-memory/edges.json" "$REPO/.devflow/branches/main/edges.json"
-  ln -sfn "branches/main" "$REPO/.devflow/active"
+  mkdir -p "$REPO/.devflow"
+  # Write a minimal config.json so df-explain knows the project name
+  cat > "$REPO/.devflow/config.json" <<'EOF'
+{
+  "service": "sample-repo",
+  "mode": "project",
+  "stack": { "runtime": "dotnet", "frontend": "sveltekit" },
+  "last_synced": "abc123",
+  "review_checks": ["naming","test-coverage","dead-code"],
+  "quality_hooks": {},
+  "auto_skills": []
+}
+EOF
   export DF_EXPLAIN="$BATS_TEST_DIRNAME/../bin/df-explain"
   export PATH="$BATS_TEST_DIRNAME/../bin:$PATH"
+  export DEVFLOW_MCP_MOCK=1
 }
 
 teardown() {
   rm -rf "$REPO"
+  unset DEVFLOW_MCP_MOCK
 }
 
 # ─── --version ─────────────────────────────────────────────────────────────────
@@ -27,116 +45,84 @@ teardown() {
   [[ "$output" =~ DevFlow ]]
 }
 
-# ─── name resolution ───────────────────────────────────────────────────────────
+# ─── basic search (default mode) ───────────────────────────────────────────────
 
-@test "exact match: entity:Entities.Comment resolves" {
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' 'entity:Entities.Comment'"
-  [ "$status" -eq 0 ]
-  [[ "$output" =~ "Comment" ]]
-  [[ "$output" =~ "entity" ]]
-}
-
-@test "case-insensitive match: 'userservice' resolves to service:Services.UserService" {
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' 'userservice'"
-  [ "$status" -eq 0 ]
-  [[ "$output" =~ "UserService" ]]
-}
-
-@test "substring single match: 'CreatedEvent' resolves" {
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' 'CreatedEvent'"
-  [ "$status" -eq 0 ]
-  [[ "$output" =~ "CommentCreatedEvent" ]]
-}
-
-@test "substring multiple matches: lists options and exits 1" {
-  # 'comment' matches entity:Entities.Comment AND service:Services.CommentService AND contract:Contracts.CommentCreatedEvent
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' 'comment' 2>&1"
-  # With multiple matches it should list them and exit 1
-  [ "$status" -eq 1 ]
-  [[ "$output" =~ "Multiple matches" ]]
-}
-
-@test "file path match: Entities/Comment.cs resolves" {
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' 'Entities/Comment.cs'"
-  [ "$status" -eq 0 ]
-  [[ "$output" =~ "Comment" ]]
-}
-
-@test "no match: prints no-memory message and exits 1" {
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' 'NonExistent' 2>&1"
-  [ "$status" -eq 1 ]
-  [[ "$output" =~ "No memory found" ]]
-}
-
-@test "--node exact: resolves exact node ID" {
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' --node 'entity:Entities.Comment'"
-  [ "$status" -eq 0 ]
-  [[ "$output" =~ "Comment" ]]
-}
-
-@test "--node not found: prints error and exits 1" {
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' --node 'entity:Nonexistent' 2>&1"
-  [ "$status" -eq 1 ]
-  [[ "$output" =~ "not found" ]]
-}
-
-# ─── BFS depth ─────────────────────────────────────────────────────────────────
-
-@test "depth 0: node card only, no DEPENDS ON or DEPENDED ON BY" {
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' --depth 0 'entity:Entities.Comment'"
-  [ "$status" -eq 0 ]
-  [[ ! "$output" =~ "DEPENDS ON" ]]
-  [[ ! "$output" =~ "DEPENDED ON BY" ]]
-}
-
-@test "depth 1 (default): shows direct neighbours" {
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' 'entity:Entities.Comment'"
-  [ "$status" -eq 0 ]
-  [[ "$output" =~ "DEPENDS ON" ]] || [[ "$output" =~ "DEPENDED ON BY" ]]
-}
-
-@test "depth cap: --depth 99 is silently capped at 5 and does not error" {
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' --depth 99 'entity:Entities.Comment'"
+@test "df-explain <query> exits 0 with mock" {
+  run bash -c "cd '$REPO' && DEVFLOW_MCP_MOCK=1 '$DF_EXPLAIN' CommentService"
   [ "$status" -eq 0 ]
 }
 
-# ─── stale nodes ───────────────────────────────────────────────────────────────
-
-@test "stale node shows [STALE] marker in output" {
-  # contract:Contracts.CommentCreatedEvent has stale: "aged" in fixture
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' 'CommentCreatedEvent'"
+@test "df-explain <query> prints non-empty output" {
+  run bash -c "cd '$REPO' && DEVFLOW_MCP_MOCK=1 '$DF_EXPLAIN' CommentService"
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "STALE" ]]
+  [ -n "$output" ]
 }
 
-# ─── edge display ──────────────────────────────────────────────────────────────
+# ─── --rank ───────────────────────────────────────────────────────────────────
 
-@test "node with no inbound edges omits DEPENDED ON BY section" {
-  # route:src.routes.+page has no inbound edges — DEPENDED ON BY omitted
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' --node 'route:src.routes.+page'"
+@test "df-explain --rank exits 0" {
+  run bash -c "cd '$REPO' && DEVFLOW_MCP_MOCK=1 '$DF_EXPLAIN' --rank"
   [ "$status" -eq 0 ]
-  [[ ! "$output" =~ "DEPENDED ON BY" ]]
 }
 
-@test "node with inbound edges shows DEPENDED ON BY section" {
-  # entity:Entities.Comment is depended on by UserService (UserService → Comment)
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' --node 'entity:Entities.Comment'"
+@test "df-explain --rank --budget 256 exits 0" {
+  run bash -c "cd '$REPO' && DEVFLOW_MCP_MOCK=1 '$DF_EXPLAIN' --rank --budget 256"
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "DEPENDED ON BY" ]]
 }
 
-# ─── error paths ───────────────────────────────────────────────────────────────
+# ─── --impact ─────────────────────────────────────────────────────────────────
 
-@test "not a git repo: exits 1 with message" {
-  tmpdir="$(mktemp -d)"
-  run bash -c "cd '$tmpdir' && '$DF_EXPLAIN' Comment 2>&1"
-  rm -rf "$tmpdir"
-  [ "$status" -eq 1 ]
-  [[ "$output" =~ "Not a git repo" ]]
+@test "df-explain --impact exits 0" {
+  run bash -c "cd '$REPO' && DEVFLOW_MCP_MOCK=1 '$DF_EXPLAIN' --impact"
+  [ "$status" -eq 0 ]
 }
+
+# ─── --dead-code ──────────────────────────────────────────────────────────────
+
+@test "df-explain --dead-code exits 0" {
+  run bash -c "cd '$REPO' && DEVFLOW_MCP_MOCK=1 '$DF_EXPLAIN' --dead-code"
+  [ "$status" -eq 0 ]
+}
+
+# ─── --clones ─────────────────────────────────────────────────────────────────
+
+@test "df-explain --clones exits 0" {
+  run bash -c "cd '$REPO' && DEVFLOW_MCP_MOCK=1 '$DF_EXPLAIN' --clones"
+  [ "$status" -eq 0 ]
+}
+
+# ─── --diff ───────────────────────────────────────────────────────────────────
+
+@test "df-explain --diff HEAD HEAD exits 0" {
+  run bash -c "cd '$REPO' && DEVFLOW_MCP_MOCK=1 '$DF_EXPLAIN' --diff HEAD HEAD"
+  [ "$status" -eq 0 ]
+}
+
+# ─── --node ───────────────────────────────────────────────────────────────────
+
+@test "df-explain --node <path> exits 0" {
+  run bash -c "cd '$REPO' && DEVFLOW_MCP_MOCK=1 '$DF_EXPLAIN' --node src/routes/+page.svelte"
+  [ "$status" -eq 0 ]
+}
+
+# ─── --project ────────────────────────────────────────────────────────────────
+
+@test "df-explain --project <name> --rank exits 0" {
+  run bash -c "cd '$REPO' && DEVFLOW_MCP_MOCK=1 '$DF_EXPLAIN' --project sample-repo --rank"
+  [ "$status" -eq 0 ]
+}
+
+# ─── --headless ───────────────────────────────────────────────────────────────
+
+@test "df-explain --headless --rank exits 0" {
+  run bash -c "cd '$REPO' && DEVFLOW_MCP_MOCK=1 '$DF_EXPLAIN' --headless --rank"
+  [ "$status" -eq 0 ]
+}
+
+# ─── CI / degraded mode ───────────────────────────────────────────────────────
 
 @test "no .devflow/: exits 0 silently (CI mode)" {
-  tmpdir="$(mktemp -d)"
+  tmpdir=$(mktemp -d)
   (cd "$tmpdir" && git init -b main && git config user.email "t@t.com" && git config user.name "T" && git commit --allow-empty -m "init" --quiet)
   run bash -c "cd '$tmpdir' && '$DF_EXPLAIN' Comment"
   rm -rf "$tmpdir"
@@ -144,9 +130,12 @@ teardown() {
   [ -z "$output" ]
 }
 
-@test "nodes.json missing: exits 1 with not-initialised message" {
-  rm "$REPO/.devflow/branches/main/nodes.json"
-  run bash -c "cd '$REPO' && '$DF_EXPLAIN' Comment 2>&1"
+# ─── error paths ──────────────────────────────────────────────────────────────
+
+@test "not a git repo: exits 1 with message" {
+  tmpdir=$(mktemp -d)
+  run bash -c "cd '$tmpdir' && '$DF_EXPLAIN' Comment 2>&1"
+  rm -rf "$tmpdir"
   [ "$status" -eq 1 ]
-  [[ "$output" =~ "not initialised" ]] || [[ "$output" =~ "not initialized" ]]
+  [[ "$output" =~ "Not a git repo" ]] || [[ "$output" =~ "not inside a git" ]]
 }

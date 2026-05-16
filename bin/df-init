@@ -5,6 +5,13 @@
 
 set -euo pipefail
 
+DEVFLOW_VERSION="4.0.0"
+
+if [[ "${1:-}" == "--version" || "${1:-}" == "-v" ]]; then
+  echo "DevFlow df-init $DEVFLOW_VERSION"
+  exit 0
+fi
+
 MODE="init"
 HEADLESS=false
 
@@ -82,12 +89,19 @@ detect_stack() {
 
 # --- Check codebase-memory-mcp is available ---
 check_mcp() {
+  # DEVFLOW_MCP_MOCK=1 skips real MCP calls (for tests)
+  if [ "${DEVFLOW_MCP_MOCK:-}" = "1" ]; then return 0; fi
   if ! command -v codebase-memory-mcp &>/dev/null; then
     echo "Error: codebase-memory-mcp not found." >&2
     echo "Install with: df-install --mcp" >&2
     exit 1
   fi
 }
+
+# --- Mock MCP calls (for DEVFLOW_MCP_MOCK=1) ---
+mcp_index() { :; }  # no-op
+mcp_architecture() { echo "{}"; }
+mcp_search() { echo "[]"; }
 
 case "$MODE" in
   scan)
@@ -101,18 +115,24 @@ case "$MODE" in
     mkdir -p "$DEVFLOW_DIR"
 
     # Index repository via codebase-memory-mcp CLI
-    echo "[df-init] Indexing repository..."
-    codebase-memory-mcp cli index_repository "{\"repo_path\":\"$PROJECT_ROOT\"}" || {
-      echo "Error: codebase-memory-mcp indexing failed" >&2; exit 1
-    }
+    if [ "${DEVFLOW_MCP_MOCK:-}" = "1" ]; then
+      echo "[df-init] (mock) Skipping MCP indexing"
+      ARCH="{}"
+      TOP_NODES="[]"
+    else
+      echo "[df-init] Indexing repository..."
+      codebase-memory-mcp cli index_repository "{\"repo_path\":\"$PROJECT_ROOT\"}" || {
+        echo "Error: codebase-memory-mcp indexing failed" >&2; exit 1
+      }
 
-    # Get architecture overview
-    echo "[df-init] Generating memory..."
-    ARCH=$(codebase-memory-mcp cli get_architecture "{}" 2>/dev/null || echo "{}")
+      # Get architecture overview
+      echo "[df-init] Generating memory..."
+      ARCH=$(codebase-memory-mcp cli get_architecture "{}" 2>/dev/null || echo "{}")
 
-    # Get top nodes by graph degree (proxy for PageRank)
-    TOP_NODES=$(codebase-memory-mcp cli search_graph \
-      "{\"limit\":50,\"min_degree\":2}" 2>/dev/null || echo "[]")
+      # Get top nodes by graph degree (proxy for PageRank)
+      TOP_NODES=$(codebase-memory-mcp cli search_graph \
+        "{\"limit\":50,\"min_degree\":2}" 2>/dev/null || echo "[]")
+    fi
 
     # Detect stack
     STACK=$(detect_stack "$PROJECT_ROOT")

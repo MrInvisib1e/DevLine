@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ─── constants ────────────────────────────────────────────────────────────────
 
-DEVFLOW_VERSION="0.1.0"
+DEVFLOW_VERSION="4.0.0"
 # Allow override for tests; default to ~/.devflow/workspaces/
 WORKSPACE_DIR="${DEVFLOW_WORKSPACE_DIR:-$HOME/.devflow/workspaces}"
 
@@ -133,7 +133,7 @@ cmd_read() {
     err "Sibling \"$service\" has no .devflow/ directory. Run df-init in that repo first. Skipping."
     exit 1
   fi
-  local target_file="${sibling_path}/.devflow/active/${memory_file}"
+  local target_file="${sibling_path}/.devflow/${memory_file}"
   if [[ ! -f "$target_file" ]] || [[ ! -s "$target_file" ]]; then
     err "Sibling \"$service\" ${memory_file} is empty or unreadable. Skipping."
     exit 1

@@ -6,10 +6,9 @@ setup() {
   export REPO
   REPO="$(mktemp -d)"
   (cd "$REPO" && git init -b main && git config user.email "t@t.com" && git config user.name "T" && git commit --allow-empty -m "initial" --quiet)
-  mkdir -p "$REPO/.devflow/branches/main"
-  # Fake memory.md for sibling repos
-  echo "# memory" > "$REPO/.devflow/branches/main/memory.md"
-  ln -sfn "branches/main" "$REPO/.devflow/active"
+  # v4: .devflow/ with memory.md directly (no branches/ subdirectory)
+  mkdir -p "$REPO/.devflow"
+  echo "# memory" > "$REPO/.devflow/memory.md"
 
   # Registry dir — isolated per test run
   export DEVFLOW_WORKSPACE_DIR
@@ -122,11 +121,10 @@ teardown() {
 }
 
 @test "read: memory.md empty prints warning and exits 1" {
-  # Create sibling with an empty memory.md
+  # Create sibling with an empty memory.md (v4: flat .devflow/ structure)
   tmpdir="$(mktemp -d)"
-  mkdir -p "$tmpdir/.devflow/branches/main"
-  touch "$tmpdir/.devflow/branches/main/memory.md"
-  ln -sfn "branches/main" "$tmpdir/.devflow/active"
+  mkdir -p "$tmpdir/.devflow"
+  touch "$tmpdir/.devflow/memory.md"
   echo "{\"empty\":\"$tmpdir\"}" > "$DEVFLOW_WORKSPACE_DIR/myws.json"
   run bash -c "cd '$REPO' && DEVFLOW_WORKSPACE_DIR='$DEVFLOW_WORKSPACE_DIR' '$DF_WORKSPACE' read myws empty memory.md 2>&1"
   rm -rf "$tmpdir"
