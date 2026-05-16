@@ -1,19 +1,19 @@
 {
   "name": "@devflow/skills",
-  "version": "3.0.0",
-  "description": "AI development workflow skills — makes AI behave like a senior engineer",
+  "version": "4.0.0",
+  "description": "DevFlow — generic AI development workflow powered by codebase-memory-mcp",
   "type": "module",
   "main": ".opencode/plugins/devflow.js",
   "bin": {
+    "devflow":      "./bin/devflow",
+    "df":           "./bin/df",
     "df-init":      "./bin/df-init",
-    "df-sync":      "./bin/df-sync",
+    "df-explain":   "./bin/df-explain",
     "df-test":      "./bin/df-test",
     "df-workspace": "./bin/df-workspace",
-    "df-explain":   "./bin/df-explain",
-    "df-export":    "./bin/df-export",
-    "df-resolve":   "./bin/df-resolve",
-    "df-migrate":   "./bin/df-migrate",
-    "df-install":   "./bin/df-install"
+    "df-install":   "./bin/df-install",
+    "df-check":     "./bin/df-check",
+    "df-benchmark": "./bin/df-benchmark"
   },
   "files": [
     "bin/",
@@ -26,12 +26,13 @@
     "GEMINI.md",
     ".codex/"
   ],
-  "keywords": ["ai", "developer-tools", "claude", "opencode", "skills"],
+  "keywords": ["ai", "developer-tools", "claude", "opencode", "skills", "codebase-memory-mcp"],
   "engines": {
     "node": ">=18.0.0"
   },
   "devflow": {
     "skills_dir": "./skills",
-    "bootstrap_skill": "using-devflow"
+    "bootstrap_skill": "using-devflow",
+    "mcp_server": "codebase-memory-mcp"
   }
 }
