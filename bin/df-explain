@@ -1,452 +1,150 @@
 #!/usr/bin/env bash
-# shellcheck enable=require-variable-braces
+# df-explain — Query the codebase knowledge graph via codebase-memory-mcp
+# Usage:
+#   df-explain <query>              — search for a symbol/concept
+#   df-explain --rank [--budget N]  — top N nodes by degree
+#   df-explain --diff HEAD~5 HEAD   — what changed between commits
+#   df-explain --node <file>        — node for a file + 1 level edges
+#   df-explain --impact             — detect_changes blast radius
+#   df-explain --dead-code          — find zero-caller functions
+#   df-explain --clones             — find near-clone pairs
+# Options:
+#   --project <name>                — scope to a specific project (orchestrator mode)
+#   --headless                      — non-interactive mode
+
 set -euo pipefail
 
-# ─── constants ────────────────────────────────────────────────────────────────
-
-DEVFLOW_VERSION="0.1.0"
-MAX_DEPTH=5
-
-# ─── helpers ──────────────────────────────────────────────────────────────────
-
-err() { echo "[DevFlow] $*" >&2; }
-
-check_prereqs() {
-  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    err "Not a git repo."
-    exit 1
-  fi
-  if ! command -v jq >/dev/null 2>&1; then
-    err "Missing prerequisite: jq"
-    exit 1
-  fi
-}
-
-# ─── PageRank via SQLite ───────────────────────────────────────────────────────
-
-_pagerank_sqlite() {
-  local db="$1"
-  local iterations="${2:-10}"
-  local damping="${3:-0.85}"
-
-  command -v sqlite3 >/dev/null 2>&1 || return 1
-  [[ -f "$db" ]] || return 1
-
-  # Initialize rank table
-  sqlite3 "$db" <<'SQL'
-DROP TABLE IF EXISTS _pr_curr;
-DROP TABLE IF EXISTS _out_degree;
-CREATE TEMP TABLE _pr_curr AS
-  SELECT id, CAST(1.0 AS REAL) / (SELECT COUNT(*) FROM nodes) AS rank
-  FROM nodes;
-CREATE TEMP TABLE _out_degree AS
-  SELECT source AS id, COUNT(*) AS deg FROM edges GROUP BY source;
-SQL
-
-  local i=0
-  while [[ $i -lt $iterations ]]; do
-    sqlite3 "$db" <<SQL
-CREATE TEMP TABLE _pr_next AS
-  SELECT
-    n.id,
-    CAST((1.0 - ${damping}) AS REAL) / (SELECT COUNT(*) FROM nodes)
-    + ${damping} * COALESCE((
-        SELECT SUM(pr.rank / COALESCE(od.deg, 1))
-        FROM edges e
-        JOIN _pr_curr pr ON pr.id = e.source
-        LEFT JOIN _out_degree od ON od.id = e.source
-        WHERE e.target = n.id
-      ), 0.0) AS rank
-  FROM nodes n;
-DROP TABLE _pr_curr;
-ALTER TABLE _pr_next RENAME TO _pr_curr;
-SQL
-    ((i++)) || true
-  done
-
-  # Return ranked results
-  sqlite3 "$db" \
-    "SELECT id, kind, file_id, rank FROM _pr_curr ORDER BY rank DESC;" \
-    2>/dev/null
-}
-
-cmd_rank() {
-  local budget="${1:-1024}"
-  local devflow_dir
-  devflow_dir="$(git rev-parse --show-toplevel 2>/dev/null)/.devflow"
-
-  [[ ! -d "$devflow_dir" ]] && {
-    err "DevFlow not initialized. Run /init first."
-    exit 1
-  }
-
-  local db="${devflow_dir}/graph.db"
-
-  if [[ ! -f "$db" ]] || ! command -v sqlite3 >/dev/null 2>&1; then
-    # Fallback: read from nodes.json sorted by type
-    local nodes_file="${devflow_dir}/active/nodes.json"
-    if [[ -f "$nodes_file" ]]; then
-      echo "[DevFlow] SQLite not available — showing nodes from nodes.json"
-      jq -r '.nodes[] | "\(.id) [\(.type)] \(.file // "")"' "$nodes_file" 2>/dev/null | head -50
-    else
-      err "No graph data found. Run df-sync first."
-      exit 1
-    fi
-    return
-  fi
-
-  echo "[DevFlow] Top nodes by PageRank (budget: ${budget} tokens)"
-  echo ""
-
-  local token_used=0
-  local rank_pos=1
-  while IFS='|' read -r nid nkind nfile nrank; do
-    [[ -z "$nid" ]] && continue
-    local line="${rank_pos}. ${nid} [${nkind}] ${nfile}"
-    local line_tokens=$(( ${#line} / 4 + 2 ))
-    if [[ $(( token_used + line_tokens )) -gt $budget ]]; then
-      echo "(budget exhausted — use --budget N for more)"
-      break
-    fi
-    printf '%s\n' "$line"
-    token_used=$(( token_used + line_tokens ))
-    ((rank_pos++)) || true
-  done < <(_pagerank_sqlite "$db" 2>/dev/null || \
-    sqlite3 "$db" "SELECT id, kind, file_id, 0.0 FROM nodes ORDER BY rowid LIMIT 100;" 2>/dev/null || true)
-
-  echo ""
-  echo "(Showed $((rank_pos - 1)) nodes using ~${token_used} tokens)"
-}
-
-cmd_diff_graph() {
-  local sha1="$1"
-  local sha2="${2:-HEAD}"
-
-  local git_root
-  git_root=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
-  local devflow_dir="${git_root}/.devflow"
-
-  [[ ! -d "$devflow_dir" ]] && {
-    err "DevFlow not initialized."
-    exit 1
-  }
-
-  local active_dir="${devflow_dir}/active"
-
-  # Get nodes at sha1 and sha2 using git show
-  local nodes_at_sha1 nodes_at_sha2
-  local branch_canon
-  branch_canon=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | sed 's|/|__|g' || echo "main")
-  local nodes_path=".devflow/branches/${branch_canon}/nodes.json"
-
-  nodes_at_sha1=$(git show "${sha1}:${nodes_path}" 2>/dev/null | jq '[.nodes[].id]' 2>/dev/null || echo "[]")
-  nodes_at_sha2=$(git show "${sha2}:${nodes_path}" 2>/dev/null | jq '[.nodes[].id]' 2>/dev/null || echo "[]")
-
-  if [[ "$nodes_at_sha1" = "[]" ]] && [[ "$nodes_at_sha2" = "[]" ]]; then
-    echo "[DevFlow] No graph history found at ${sha1} or ${sha2}"
-    return
-  fi
-
-  local added removed
-  added=$(jq -n --argjson a "$nodes_at_sha1" --argjson b "$nodes_at_sha2" \
-    '$b | map(select(. as $x | $a | index($x) == null))' 2>/dev/null || echo "[]")
-  removed=$(jq -n --argjson a "$nodes_at_sha1" --argjson b "$nodes_at_sha2" \
-    '$a | map(select(. as $x | $b | index($x) == null))' 2>/dev/null || echo "[]")
-
-  local added_count removed_count
-  added_count=$(printf '%s' "$added" | jq 'length' 2>/dev/null || echo 0)
-  removed_count=$(printf '%s' "$removed" | jq 'length' 2>/dev/null || echo 0)
-
-  echo "[DevFlow] Graph diff: ${sha1}..${sha2}"
-  echo "  Added nodes:   ${added_count}"
-  echo "  Removed nodes: ${removed_count}"
-
-  if [[ "$added_count" -gt 0 ]]; then
-    echo ""
-    echo "Added:"
-    printf '%s' "$added" | jq -r '.[]' 2>/dev/null | head -20 | sed 's/^/  + /'
-  fi
-  if [[ "$removed_count" -gt 0 ]]; then
-    echo ""
-    echo "Removed:"
-    printf '%s' "$removed" | jq -r '.[]' 2>/dev/null | head -20 | sed 's/^/  - /'
-  fi
-}
-
-# ─── node resolution ──────────────────────────────────────────────────────────
-
-resolve_node() {
-  local input="${1}"
-  local nodes_file="${2}"
-
-  # 1. Exact match on id (case-sensitive)
-  local match
-  match=$(jq -r --arg q "${input}" '.nodes[] | select(.id == $q) | .id' "${nodes_file}")
-  if [[ -n "${match}" ]]; then
-    echo "${match}"
-    return 0
-  fi
-
-  # 2. Case-insensitive exact match on id
-  local lower_input
-  lower_input=$(echo "${input}" | tr '[:upper:]' '[:lower:]')
-  match=$(jq -r --arg q "${lower_input}" '.nodes[] | select((.id | ascii_downcase) == $q) | .id' "${nodes_file}" | head -1)
-  if [[ -n "${match}" ]]; then
-    echo "${match}"
-    return 0
-  fi
-
-  # 3. Substring match (case-insensitive) on id
-  local matches
-  matches=$(jq -r --arg q "${lower_input}" '.nodes[] | select((.id | ascii_downcase) | contains($q)) | .id' "${nodes_file}")
-  local count
-  if [[ -z "${matches}" ]]; then
-    count=0
-  else
-    count=$(echo "${matches}" | grep -c . 2>/dev/null || echo 0)
-  fi
-  if [[ "${count}" -eq 1 ]]; then
-    echo "${matches}"
-    return 0
-  elif [[ "${count}" -gt 1 ]]; then
-    err "Multiple matches for \"${input}\":"
-    local i=1
-    while IFS= read -r m; do
-      echo "  ${i}. ${m}" >&2
-      ((i++)) || true
-    done <<< "${matches}"
-    echo "Specify a full node name or use df-explain --node <exact-name>." >&2
-    return 1
-  fi
-
-  # 4. File path match on file field
-  match=$(jq -r --arg q "${input}" '.nodes[] | select(.file == $q) | .id' "${nodes_file}" | head -1)
-  if [[ -n "${match}" ]]; then
-    echo "${match}"
-    return 0
-  fi
-
-  # 5. No match
-  err "No memory found for \"${input}\". It may need a df-sync or a classifier entry."
-  return 1
-}
-
-# ─── neighbour traversal ────────────────────────────────────────────────────────────
-
-# Print a single node line: "  → NodeName [type] — intent [STALE marker]"
-# direction: "out" (→) or "in" (←)
-format_neighbour_line() {
-  local node_json="${1}" direction="${2}"
-  local id type intent stale arrow
-  id=$(printf '%s' "${node_json}" | jq -r '.id')
-  type=$(printf '%s' "${node_json}" | jq -r '.type')
-  intent=$(printf '%s' "${node_json}" | jq -r '.intent // "(no intent recorded)"')
-  stale=$(printf '%s' "${node_json}" | jq -r '.stale // false')
-  arrow="→"
-  [[ "${direction}" == "in" ]] && arrow="←"
-
-  local stale_marker=""
-  if [[ "${stale}" == "deleted" ]]; then
-    stale_marker=" [STALE: deleted]"
-  elif [[ "${stale}" == "aged" ]]; then
-    stale_marker=" [STALE: aged]"
-  fi
-
-  # Extract short name from id (last component after last dot or colon)
-  local short_name="${id##*[.:]}"
-
-  printf '  %s %s [%s] — %s%s\n' "${arrow}" "${short_name}" "${type}" "${intent}" "${stale_marker}"
-}
-
-# ─── report output ────────────────────────────────────────────────────────────
-
-print_node_report() {
-  local node_id="${1}" depth="${2}" nodes_file="${3}" edges_file="${4}"
-
-  # Get the node JSON
-  local node_json
-  node_json=$(jq -r --arg id "${node_id}" '.nodes[] | select(.id == $id)' "${nodes_file}")
-  if [[ -z "${node_json}" ]]; then
-    err "Node \"${node_id}\" not found in nodes.json."
-    return 1
-  fi
-
-  local ntype nfile nintent nconfidence nstale
-  ntype=$(printf '%s' "${node_json}" | jq -r '.type')
-  nfile=$(printf '%s' "${node_json}" | jq -r '.file // "(unknown file)"')
-  nintent=$(printf '%s' "${node_json}" | jq -r '.intent // "(no intent recorded)"')
-  nconfidence=$(printf '%s' "${node_json}" | jq -r '.confidence')
-  nstale=$(printf '%s' "${node_json}" | jq -r '.stale // false')
-
-  local short_name="${node_id##*[.:]}"
-
-  local stale_header=""
-  if [[ "${nstale}" == "deleted" ]]; then
-    stale_header=" [STALE: deleted]"
-  elif [[ "${nstale}" == "aged" ]]; then
-    stale_header=" [STALE: aged]"
-  fi
-
-  # Node card
-  printf '[%s] %s — %s%s\n' "${short_name}" "${ntype}" "${nintent}" "${stale_header}"
-  printf 'file: %s\n' "${nfile}"
-  printf 'confidence: %s\n' "${nconfidence}"
-
-  if [[ "${depth}" -eq 0 ]]; then
-    return 0
-  fi
-
-  # Any depth >= 1 shows direct neighbours only (multi-hop BFS not implemented;
-  # consistent with test suite expectations and --depth hard cap at MAX_DEPTH).
-
-  # Collect direct outbound neighbours
-  local out_ids
-  mapfile -t out_ids < <(jq -r --arg id "${node_id}" '.edges[] | select(.from == $id) | .to' "${edges_file}" 2>/dev/null | sort -u || true)
-
-  # Collect direct inbound neighbours
-  local in_ids
-  mapfile -t in_ids < <(jq -r --arg id "${node_id}" '.edges[] | select(.to == $id) | .from' "${edges_file}" 2>/dev/null | sort -u || true)
-
-  # DEPENDS ON section
-  if [[ "${#out_ids[@]}" -gt 0 ]]; then
-    printf '\nDEPENDS ON (%d)\n' "${#out_ids[@]}"
-    for nid in "${out_ids[@]}"; do
-      local neighbour_json
-      neighbour_json=$(jq -r --arg id "${nid}" '.nodes[] | select(.id == $id)' "${nodes_file}")
-      if [[ -n "${neighbour_json}" ]]; then
-        format_neighbour_line "${neighbour_json}" "out"
-      fi
-    done
-  fi
-
-  # DEPENDED ON BY section
-  if [[ "${#in_ids[@]}" -gt 0 ]]; then
-    printf '\nDEPENDED ON BY (%d) — changing %s affects these:\n' "${#in_ids[@]}" "${short_name}"
-    for nid in "${in_ids[@]}"; do
-      local neighbour_json
-      neighbour_json=$(jq -r --arg id "${nid}" '.nodes[] | select(.id == $id)' "${nodes_file}")
-      if [[ -n "${neighbour_json}" ]]; then
-        format_neighbour_line "${neighbour_json}" "in"
-      fi
-    done
-
-    # Summary line
-    local names=()
-    for nid in "${in_ids[@]}"; do
-      local sname="${nid##*[.:]}"
-      names+=("${sname}")
-    done
-    local joined
-    printf -v joined '%s, ' "${names[@]}"
-    joined="${joined%, }"
-    printf '\n[DevFlow] %d node(s) depend on %s.\n' "${#in_ids[@]}" "${short_name}"
-    printf 'Changing its shape will affect %s.\n' "${joined}"
-  fi
-}
-
-# ─── commands ─────────────────────────────────────────────────────────────────
-
-cmd_version() {
-  echo "DevFlow ${DEVFLOW_VERSION}"
-  exit 0
-}
-
-cmd_explain() {
-  local input="${1}" depth="${2}" exact_node="${3}"
-
-  check_prereqs
-
-  # Clamp depth
-  if [[ "${depth}" -gt "${MAX_DEPTH}" ]]; then depth=${MAX_DEPTH}; fi
-
-  # CI mode: no .devflow/ → exit 0 silently
-  local devflow_dir
-  devflow_dir="$(git rev-parse --show-toplevel)/.devflow"
-  if [[ ! -d "${devflow_dir}" ]]; then
-    exit 0
-  fi
-
-  local nodes_file="${devflow_dir}/active/nodes.json"
-  local edges_file="${devflow_dir}/active/edges.json"
-
-  if [[ ! -f "${nodes_file}" ]] || [[ ! -f "${edges_file}" ]]; then
-    err "Memory not initialised. Run df-init first."
-    exit 1
-  fi
-
-  local node_id
-  if [[ -n "${exact_node}" ]]; then
-    # --node flag: exact lookup
-    node_id=$(jq -r --arg id "${exact_node}" '.nodes[] | select(.id == $id) | .id' "${nodes_file}")
-    if [[ -z "${node_id}" ]]; then
-      err "Node \"${exact_node}\" not found in nodes.json."
-      exit 1
-    fi
-  else
-    node_id=$(resolve_node "${input}" "${nodes_file}") || exit 1
-  fi
-
-  print_node_report "${node_id}" "${depth}" "${nodes_file}" "${edges_file}"
-}
-
-# ─── dispatch ─────────────────────────────────────────────────────────────────
-
-INPUT=""
-DEPTH=1
-EXACT_NODE=""
-RANK_MODE=false
-DIFF_MODE=false
-DIFF_SHA1=""
-DIFF_SHA2="HEAD"
-BUDGET=1024
+PROJECT=""
+BUDGET=512
+HEADLESS=false
+ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --version) cmd_version ;;
-    --depth)
-      shift
-      DEPTH="${1:-1}"
-      [[ $# -gt 0 ]] && shift
-      ;;
-    --node)
-      shift
-      EXACT_NODE="${1:-}"
-      [[ $# -gt 0 ]] && shift
-      ;;
-    --rank) RANK_MODE=true; shift ;;
-    --diff)
-      DIFF_MODE=true; shift
-      DIFF_SHA1="${1:-HEAD~1}"; shift || true
-      DIFF_SHA2="${1:-HEAD}"; shift || true
-      ;;
-    --budget) shift; BUDGET="${1:-1024}"; shift ;;
-    -*)
-      err "Unknown flag: $1"
-      exit 1
-      ;;
-    *)
-      INPUT="$1"
-      shift
-      ;;
+    --project) PROJECT="$2"; shift 2 ;;
+    --budget) BUDGET="$2"; shift 2 ;;
+    --headless) HEADLESS=true; shift ;;
+    *) ARGS+=("$1"); shift ;;
   esac
 done
 
-# Handle --rank mode
-if [[ "$RANK_MODE" = true ]]; then
-  cmd_rank "$BUDGET"
-  exit 0
+PROJECT_ARG=""
+if [ -n "$PROJECT" ]; then
+  PROJECT_ARG="\"project\":\"$PROJECT\","
 fi
 
-# Handle --diff mode
-if [[ "$DIFF_MODE" = true ]]; then
-  cmd_diff_graph "$DIFF_SHA1" "$DIFF_SHA2"
-  exit 0
-fi
+check_mcp() {
+  command -v codebase-memory-mcp &>/dev/null || {
+    echo "Error: codebase-memory-mcp not found. Install with: df-install --mcp" >&2
+    exit 1
+  }
+}
 
-# Handle no-arg default: show ranked view
-if [[ -z "${INPUT}" && -z "${EXACT_NODE}" ]]; then
-  cmd_rank "$BUDGET"
-  exit 0
-fi
+MODE="${ARGS[0]:-search}"
 
-cmd_explain "${INPUT}" "${DEPTH}" "${EXACT_NODE}"
+case "$MODE" in
+  --rank)
+    check_mcp
+    codebase-memory-mcp cli search_graph \
+      "{${PROJECT_ARG}\"limit\":$BUDGET,\"min_degree\":1}" \
+      | python3 -c "
+import json,sys
+nodes=json.load(sys.stdin)
+for n in nodes:
+  print(f\"{n.get('name','?')} [{n.get('label','?')}] — {n.get('file','')} (degree: {n.get('degree',0)})\")
+"
+    ;;
+
+  --diff)
+    check_mcp
+    FROM="${ARGS[1]:-HEAD~1}"
+    TO="${ARGS[2]:-HEAD}"
+    codebase-memory-mcp cli query_graph \
+      "{${PROJECT_ARG}\"query\":\"MATCH (n) WHERE n.file_changed_in >= '$FROM' RETURN n LIMIT 50\"}" \
+      2>/dev/null || echo "(diff query not supported in this version)"
+    ;;
+
+  --node)
+    check_mcp
+    FILE="${ARGS[1]}"
+    codebase-memory-mcp cli search_graph \
+      "{${PROJECT_ARG}\"file_pattern\":\"$FILE\",\"limit\":20}" | python3 -c "
+import json,sys
+nodes=json.load(sys.stdin)
+for n in nodes:
+  print(f\"{n.get('name','?')} [{n.get('label','?')}] — {n.get('file','')}\")"
+    echo "--- Outbound ---"
+    BASENAME=$(basename "${ARGS[1]}" | sed 's/\.[^.]*$//')
+    codebase-memory-mcp cli trace_call_path \
+      "{${PROJECT_ARG}\"function_name\":\"$BASENAME\",\"direction\":\"outbound\",\"depth\":1}" \
+      2>/dev/null || echo "(trace not available)"
+    echo "--- Inbound ---"
+    codebase-memory-mcp cli trace_call_path \
+      "{${PROJECT_ARG}\"function_name\":\"$BASENAME\",\"direction\":\"inbound\",\"depth\":1}" \
+      2>/dev/null || echo "(trace not available)"
+    ;;
+
+  --impact)
+    check_mcp
+    codebase-memory-mcp cli detect_changes "{${PROJECT_ARG:-}}" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+symbols=data.get('affected_symbols',[])
+print(f'Affected symbols: {len(symbols)}')
+for s in symbols:
+  risk=s.get('risk','unknown')
+  print(f'  [{risk.upper()}] {s.get(\"name\",\"?\")} — {s.get(\"file\",\"\")}')"
+    ;;
+
+  --dead-code)
+    check_mcp
+    codebase-memory-mcp cli query_graph \
+      "{${PROJECT_ARG}\"query\":\"MATCH (f:Function) WHERE NOT ()-[:CALLS]->(f) AND NOT f.name STARTS WITH 'test' RETURN f.name, f.file LIMIT 50\"}" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+rows=data.get('rows',[])
+print(f'Dead code candidates: {len(rows)}')
+for r in rows:
+  print(f'  {r.get(\"f.name\",\"?\")} — {r.get(\"f.file\",\"\")}')"
+    ;;
+
+  --clones)
+    check_mcp
+    codebase-memory-mcp cli query_graph \
+      "{${PROJECT_ARG}\"query\":\"MATCH (a)-[r:SIMILAR_TO]->(b) WHERE r.score > 0.8 RETURN a.name, b.name, r.score ORDER BY r.score DESC LIMIT 20\"}" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+rows=data.get('rows',[])
+print(f'Near-clone pairs (score > 0.8): {len(rows)}')
+for r in rows:
+  print(f'  {r.get(\"a.name\",\"?\")} ≈ {r.get(\"b.name\",\"?\")} (score: {r.get(\"r.score\",0):.2f})')"
+    ;;
+
+  --help|-h)
+    sed -n '2,12p' "$0"
+    ;;
+
+  *)
+    # Default: semantic + structural search for query term
+    check_mcp
+    QUERY="$MODE"
+    echo "=== Structural search: $QUERY ==="
+    codebase-memory-mcp cli search_graph \
+      "{${PROJECT_ARG}\"name_pattern\":\"$QUERY\",\"limit\":20}" | python3 -c "
+import json,sys
+nodes=json.load(sys.stdin)
+for n in nodes:
+  print(f\"  {n.get('name','?')} [{n.get('label','?')}] — {n.get('file','')}\")"
+    echo ""
+    echo "=== Call paths: $QUERY ==="
+    codebase-memory-mcp cli trace_call_path \
+      "{${PROJECT_ARG}\"function_name\":\"$QUERY\",\"direction\":\"both\",\"depth\":2}" \
+      2>/dev/null | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+paths=data.get('paths',[])
+for p in paths:
+  print(f\"  {' → '.join(str(n) for n in p)}\")
+" 2>/dev/null || echo "  (no call paths found)"
+    ;;
+esac
