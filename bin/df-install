@@ -25,14 +25,17 @@ header() { printf "\n${BOLD}%s${RESET}\n" "$*"; }
 DRY_RUN=false
 PLATFORM="all"
 INSTALL_DIR=""
+MCP_ONLY=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run)         DRY_RUN=true; shift ;;
     --platform)        PLATFORM="${2:-all}"; shift 2 ;;
     --install-dir)     INSTALL_DIR="${2:-}"; shift 2 ;;
+    --mcp)             MCP_ONLY=true; shift ;;
     -h|--help)
-      echo "Usage: df-install [--platform claude|opencode|gemini|all] [--install-dir <path>] [--dry-run]"
+      echo "Usage: df-install [--platform claude|opencode|gemini|all] [--install-dir <path>] [--dry-run] [--mcp]"
+      echo "  --mcp  Install/configure codebase-memory-mcp for all detected platforms"
       exit 0 ;;
     *) shift ;;
   esac
@@ -102,6 +105,91 @@ append_if_missing() {
   printf '%s\n' "$content" >> "$file"
 }
 
+# ── MCP server configuration ──────────────────────────────────────────────────
+configure_mcp_server() {
+  local platform="$1"
+  local mcp_binary=""
+
+  # Install codebase-memory-mcp binary if not present
+  if ! command -v codebase-memory-mcp &>/dev/null; then
+    info "Installing codebase-memory-mcp..."
+    if command -v npm &>/dev/null; then
+      if [[ "$DRY_RUN" == true ]]; then
+        info "[dry-run] Would run: npm install -g codebase-memory-mcp"
+      else
+        npm install -g codebase-memory-mcp 2>/dev/null || {
+          warn "Could not auto-install codebase-memory-mcp. Install manually:"
+          warn "  npm install -g codebase-memory-mcp"
+          return 1
+        }
+      fi
+    else
+      warn "npm not found. Install codebase-memory-mcp manually:"
+      warn "  https://github.com/DeusData/codebase-memory-mcp#installation"
+      return 1
+    fi
+  fi
+
+  mcp_binary=$(command -v codebase-memory-mcp 2>/dev/null || echo "codebase-memory-mcp")
+  ok "codebase-memory-mcp found: $mcp_binary"
+
+  case "$platform" in
+    claude)
+      local cfg="${HOME}/.claude/claude_desktop_config.json"
+      if [[ "$DRY_RUN" == true ]]; then
+        info "[dry-run] Would register codebase-memory-mcp in ${cfg}"
+        return 0
+      fi
+      mkdir -p "$(dirname "$cfg")"
+      python3 - "$cfg" "$mcp_binary" << 'PYEOF'
+import json, sys, os
+cfg_path, binary = sys.argv[1], sys.argv[2]
+os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
+try:
+    c = json.load(open(cfg_path))
+except:
+    c = {}
+c.setdefault("mcpServers", {})
+c["mcpServers"]["codebase-memory"] = {"command": binary, "args": ["server"]}
+json.dump(c, open(cfg_path, 'w'), indent=2)
+print("ok")
+PYEOF
+      ok "codebase-memory-mcp registered in ${cfg}"
+      ;;
+    opencode)
+      # Find opencode.json
+      local cfg=""
+      for candidate in \
+        "${HOME}/.config/opencode/opencode.json" \
+        "${HOME}/.opencode.json" \
+        "$(pwd)/opencode.json"; do
+        [[ -f "$candidate" ]] && cfg="$candidate" && break
+      done
+      if [[ -z "$cfg" ]]; then
+        warn "opencode.json not found — skipping OpenCode MCP registration"
+        return 0
+      fi
+      if [[ "$DRY_RUN" == true ]]; then
+        info "[dry-run] Would register codebase-memory-mcp in ${cfg}"
+        return 0
+      fi
+      python3 - "$cfg" "$mcp_binary" << 'PYEOF'
+import json, sys
+cfg_path, binary = sys.argv[1], sys.argv[2]
+c = json.load(open(cfg_path))
+c.setdefault("mcpServers", {})
+c["mcpServers"]["codebase-memory"] = {"command": binary, "args": ["server"]}
+json.dump(c, open(cfg_path, 'w'), indent=2)
+print("ok")
+PYEOF
+      ok "codebase-memory-mcp registered in ${cfg}"
+      ;;
+    gemini)
+      warn "Gemini CLI MCP registration not yet supported — add manually if needed"
+      ;;
+  esac
+}
+
 # ── locate DevFlow root ────────────────────────────────────────────────────────
 # Determine where the DevFlow repo lives.
 # Priority: --install-dir > current script's parent > ~/.devflow
@@ -120,7 +208,17 @@ elif [[ ! -f "${DEVFLOW_ROOT}/skills/using-devflow/SKILL.md" ]]; then
   fi
 fi
 
-DEVFLOW_VERSION="$(jq -r '.version // "3.0.0"' "${DEVFLOW_ROOT}/package.json" 2>/dev/null || echo "3.0.0")"
+DEVFLOW_VERSION="$(jq -r '.version // "4.0.0"' "${DEVFLOW_ROOT}/package.json" 2>/dev/null || echo "4.0.0")"
+
+# ── --mcp mode: just configure MCP server ─────────────────────────────────────
+if [[ "$MCP_ONLY" == true ]]; then
+  header "DevFlow — MCP Server Setup"
+  for p in claude opencode gemini; do
+    configure_mcp_server "$p" 2>/dev/null || true
+  done
+  ok "codebase-memory-mcp configured"
+  exit 0
+fi
 
 header "DevFlow ${DEVFLOW_VERSION} — Installer"
 info "DevFlow root: ${DEVFLOW_ROOT}"
@@ -241,19 +339,19 @@ Load any DevFlow skill when relevant by referencing its path:
 
 | Trigger | Skill file |
 |---------|-----------|
-| \`/init\` | \`${DEVFLOW_ROOT}/skills/init/SKILL.md\` |
-| \`/feature <desc>\` | \`${DEVFLOW_ROOT}/skills/feature/SKILL.md\` |
-| \`/fix <desc>\` | \`${DEVFLOW_ROOT}/skills/fix/SKILL.md\` |
-| \`/review\` | \`${DEVFLOW_ROOT}/skills/review/SKILL.md\` |
-| \`/plan <desc>\` | \`${DEVFLOW_ROOT}/skills/plan/SKILL.md\` |
-| \`/mem-sync\` | \`${DEVFLOW_ROOT}/skills/mem-sync/SKILL.md\` |
-| \`/verify\` | \`${DEVFLOW_ROOT}/skills/verify/SKILL.md\` |
+| \`/df-init\` | \`${DEVFLOW_ROOT}/skills/df-init/SKILL.md\` |
+| \`/df-feature <desc>\` | \`${DEVFLOW_ROOT}/skills/df-feature/SKILL.md\` |
+| \`/df-fix <desc>\` | \`${DEVFLOW_ROOT}/skills/df-fix/SKILL.md\` |
+| \`/df-review\` | \`${DEVFLOW_ROOT}/skills/df-review/SKILL.md\` |
+| \`/df-plan <desc>\` | \`${DEVFLOW_ROOT}/skills/df-plan/SKILL.md\` |
+| \`/df-sync\` | \`${DEVFLOW_ROOT}/skills/df-sync/SKILL.md\` |
+| \`/df-verify\` | \`${DEVFLOW_ROOT}/skills/df-verify/SKILL.md\` |
 
 Shell scripts are in \`${DEVFLOW_ROOT}/bin/\` — ensure that directory is on your PATH.
 
 ## Iron Law
 
-Before any DevFlow operation: check for \`.devflow/\` in the git root. If absent, run \`/init\` first.
+Before any DevFlow operation: check for \`.devflow/\` in the git root. If absent, run \`/df-init\` first.
 "
 
   if [[ "$DRY_RUN" == true ]]; then
@@ -297,13 +395,13 @@ PYEOF
   local COMMANDS_DIR="${CLAUDE_DIR}/commands"
 
   declare -A SKILL_DESCS=(
-    [init]="initialize repo with knowledge graph"
-    [feature]="implement a feature (PRD → slices → code)"
-    [fix]="hypothesis-driven bug fix"
-    [review]="architecture-aware code review"
-    [plan]="generate implementation plan"
-    [mem-sync]="sync knowledge graph with latest code changes"
-    [verify]="verify work passes tests/build/lint before claiming complete"
+    [df-init]="initialize repo with codebase-memory-mcp"
+    [df-feature]="implement a feature (PRD → slices → code)"
+    [df-fix]="hypothesis-driven bug fix with behavior contract"
+    [df-review]="convention-driven code review"
+    [df-plan]="brainstorm → research → implementation plan"
+    [df-sync]="regenerate memory.md"
+    [df-verify]="verify work passes tests before claiming complete"
   )
 
   if [[ "$DRY_RUN" == true ]]; then
@@ -311,11 +409,11 @@ PYEOF
   else
     mkdir -p "$COMMANDS_DIR"
 
-    for skill in init feature fix review plan; do
+    for skill in df-init df-feature df-fix df-review df-plan; do
       local desc="${SKILL_DESCS[$skill]}"
       local cmd_file="${COMMANDS_DIR}/${skill}.md"
       local has_args=false
-      [[ "$skill" == "feature" || "$skill" == "fix" || "$skill" == "plan" ]] && has_args=true
+      [[ "$skill" == "df-feature" || "$skill" == "df-fix" || "$skill" == "df-plan" ]] && has_args=true
 
       cat > "$cmd_file" <<CMDF
 ---
@@ -326,8 +424,8 @@ $(${has_args} && echo -e "\nTask: \$ARGUMENTS" || true)
 CMDF
     done
 
-    # mem-sync and verify — no arguments
-    for skill in mem-sync verify; do
+    # df-sync and df-verify — no arguments
+    for skill in df-sync df-verify; do
       local desc="${SKILL_DESCS[$skill]}"
       cat > "${COMMANDS_DIR}/${skill}.md" <<CMDF
 ---
@@ -337,11 +435,11 @@ Load and follow the DevFlow ${skill} skill from: ${DEVFLOW_ROOT}/skills/${skill}
 CMDF
     done
 
-    ok "Created slash commands in ${COMMANDS_DIR}/ (init, feature, fix, review, plan, mem-sync, verify)"
+    ok "Created slash commands in ${COMMANDS_DIR}/ (df-init, df-feature, df-fix, df-review, df-plan, df-sync, df-verify)"
   fi
 
   ok "Claude Code installation complete"
-  info "DevFlow commands visible in slash command autocomplete (/init, /feature, /fix, /review, /plan, /mem-sync, /verify)"
+  info "DevFlow commands visible in slash command autocomplete (/df-init, /df-feature, /df-fix, /df-review, /df-plan, /df-sync, /df-verify)"
   info "Bootstrap skill injected at every session start"
 }
 
@@ -473,8 +571,12 @@ else
   warn "df-explain not on PATH yet — restart terminal or: source ${SHELL_RC:-~/.zshrc}"
 fi
 
-if command -v df-sync >/dev/null 2>&1; then
-  ok "df-sync found on PATH"
+if command -v df-init >/dev/null 2>&1; then
+  ok "df-init found on PATH"
+fi
+
+if command -v df-check >/dev/null 2>&1; then
+  ok "df-check found on PATH"
 fi
 
 header "Done"
@@ -482,6 +584,6 @@ printf "${GREEN}${BOLD}DevFlow ${DEVFLOW_VERSION} installed successfully.${RESET
 printf "\n"
 printf "Next steps:\n"
 printf "  1. %s\n" "Restart your terminal (or: source ${SHELL_RC:-~/.zshrc})"
-printf "  2. %s\n" "Open any git repository in Claude Code"
-printf "  3. %s\n" "Type: /init"
+printf "  2. %s\n" "Run: df-install --mcp  (configure codebase-memory-mcp)"
+printf "  3. %s\n" "Open any git repository and type: /df-init"
 printf "\n"
