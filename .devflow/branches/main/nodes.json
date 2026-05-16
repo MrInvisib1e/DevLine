@@ -45,6 +45,195 @@
       "intent": "URL slug utility",
       "confidence": "ai",
       "last_seen": "6f176327582df37e4fdd7f70126e58181e8f440a"
+    },
+    {
+      "id": "unknown:.claude-plugin.pluginjson",
+      "name": "plugin",
+      "type": "unknown",
+      "file": ".claude-plugin/plugin.json",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "0eba061246c7655cbd58ce07a74926432a602b8e"
+    },
+    {
+      "id": "unknown:.codex.INSTALLmd",
+      "name": "INSTALL",
+      "type": "unknown",
+      "file": ".codex/INSTALL.md",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "0eba061246c7655cbd58ce07a74926432a602b8e"
+    },
+    {
+      "id": "unknown:.cursor-plugin.pluginjson",
+      "name": "plugin",
+      "type": "unknown",
+      "file": ".cursor-plugin/plugin.json",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "0eba061246c7655cbd58ce07a74926432a602b8e"
+    },
+    {
+      "id": "unknown:.opencode.plugins.devflowjs",
+      "name": "devflow",
+      "type": "unknown",
+      "file": ".opencode/plugins/devflow.js",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "0eba061246c7655cbd58ce07a74926432a602b8e"
+    },
+    {
+      "id": "unknown:CHANGELOGmd",
+      "name": "CHANGELOG",
+      "type": "unknown",
+      "file": "CHANGELOG.md",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "0eba061246c7655cbd58ce07a74926432a602b8e"
+    },
+    {
+      "id": "unknown:CLAUDEmd",
+      "name": "CLAUDE",
+      "type": "unknown",
+      "file": "CLAUDE.md",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "0eba061246c7655cbd58ce07a74926432a602b8e"
+    },
+    {
+      "id": "unknown:GEMINImd",
+      "name": "GEMINI",
+      "type": "unknown",
+      "file": "GEMINI.md",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "0eba061246c7655cbd58ce07a74926432a602b8e"
+    },
+    {
+      "id": "unknown:bin.devflow",
+      "name": "devflow",
+      "type": "unknown",
+      "file": "bin/devflow",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "0eba061246c7655cbd58ce07a74926432a602b8e"
+    },
+    {
+      "id": "unknown:gemini-extensionjson",
+      "name": "gemini-extension",
+      "type": "unknown",
+      "file": "gemini-extension.json",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "0eba061246c7655cbd58ce07a74926432a602b8e"
+    },
+    {
+      "id": "unknown:hooks.hooks-cursorjson",
+      "name": "hooks-cursor",
+      "type": "unknown",
+      "file": "hooks/hooks-cursor.json",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "0eba061246c7655cbd58ce07a74926432a602b8e"
+    },
+    {
+      "id": "unknown:hooks.session-start",
+      "name": "session-start",
+      "type": "unknown",
+      "file": "hooks/session-start",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "0eba061246c7655cbd58ce07a74926432a602b8e"
+    },
+    {
+      "id": "unknown:skills.init.SKILLmd",
+      "name": "SKILL",
+      "type": "unknown",
+      "file": "skills/init/SKILL.md",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "0eba061246c7655cbd58ce07a74926432a602b8e"
+    },
+    {
+      "id": "unknown:skills.using-devflow.SKILLmd",
+      "name": "SKILL",
+      "type": "unknown",
+      "file": "skills/using-devflow/SKILL.md",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "0eba061246c7655cbd58ce07a74926432a602b8e"
+    },
+    {
+      "id": "unknown:bin.df-init",
+      "name": "df-init",
+      "type": "unknown",
+      "file": "bin/df-init",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "2cb1aeb466e903f3d9dcab6eaaca7d3f0850cb2c"
+    },
+    {
+      "id": "unknown:hooks.run-hookcmd",
+      "name": "run-hook",
+      "type": "unknown",
+      "file": "hooks/run-hook.cmd",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "9ef85e503594cc20ccabf15a112e3f82d3d54c9b"
+    },
+    {
+      "id": "unknown:READMEmd",
+      "name": "README",
+      "type": "unknown",
+      "file": "README.md",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "a730d5d1d98d8d6f8ae223e8c1702848daf90aba"
+    },
+    {
+      "id": "unknown:packagejson",
+      "name": "package",
+      "type": "unknown",
+      "file": "package.json",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "a730d5d1d98d8d6f8ae223e8c1702848daf90aba"
+    },
+    {
+      "id": "unknown:bin.df-install",
+      "name": "df-install",
+      "type": "unknown",
+      "file": "bin/df-install",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "6cfcc6bed14bc3bc5d4d057aa9647d1ab3e589b7"
+    },
+    {
+      "id": "unknown:hooks.hooksjson",
+      "name": "hooks",
+      "type": "unknown",
+      "file": "hooks/hooks.json",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "6cfcc6bed14bc3bc5d4d057aa9647d1ab3e589b7"
+    },
+    {
+      "id": "unknown:docs.specs.2026-05-04-devflow-v3.1-designmd",
+      "name": "2026-05-04-devflow-v3",
+      "type": "unknown",
+      "file": "docs/specs/2026-05-04-devflow-v3.1-design.md",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "53743f26beae35f5634a82a6a201d340ed34e09d"
+    },
+    {
+      "id": "unknown:docs.plans.2026-05-16-devflow-v4md",
+      "name": "2026-05-16-devflow-v4",
+      "type": "unknown",
+      "file": "docs/plans/2026-05-16-devflow-v4.md",
+      "intent": "",
+      "confidence": "ai",
+      "last_seen": "614a0b05d17d3e311b8dc865c850204a38ddf136"
     }
   ]
 }
