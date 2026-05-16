@@ -1,487 +1,220 @@
 #!/usr/bin/env bash
+# df-init — Initialize DevFlow for current project
+# Usage: df-init [--scan] [--write-memory] [--reset] [--orchestrator] [--headless]
+# Requires: codebase-memory-mcp running as MCP server
+
 set -euo pipefail
 
-# ─── constants ────────────────────────────────────────────────────────────────
+MODE="init"
+HEADLESS=false
 
-DEVFLOW_VERSION="0.1.0"
+for arg in "$@"; do
+  case "$arg" in
+    --scan) MODE="scan" ;;
+    --write-memory) MODE="write-memory" ;;
+    --reset) MODE="reset" ;;
+    --orchestrator) MODE="orchestrator" ;;
+    --headless) HEADLESS=true ;;
+  esac
+done
 
-DEFAULT_CLASSIFIERS=(
-  "entity:*Entities/*.cs:*Models/*.cs:*Domain/*.cs:*Domain/*/*.cs"
-  "route:*Controller.cs:*Endpoint.cs:*pages/*.svelte:*pages/*/*.svelte:*routes/*.svelte:*routes/*/*.svelte:*routes/*.ts:*routes/*/*.ts"
-  "contract:*Contracts/*:*Events/*:*Messages/*"
-  "service:*Services/*.cs:*Handlers/*.cs"
-  "conventions:.editorconfig:*.globalconfig:.eslintrc*:*.prettierrc*"
-  "architecture:Program.cs:Startup.cs:appsettings*.json:vite.config.*"
-)
-
-# ─── helpers ──────────────────────────────────────────────────────────────────
-
-err() { echo "[DevFlow] $*" >&2; }
-
-check_prereqs() {
-  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    err "Not a git repo. Run df-init inside a git repository."
-    exit 1
+# In headless mode: T3 gates auto-approve, T2 writes to log
+df_gate() {
+  local msg="$1"
+  if [ "$HEADLESS" = true ]; then
+    echo "[df-headless] GATE AUTO-APPROVED: $msg" >> "${DEVFLOW_LOG:-/tmp/devflow-headless.log}"
+    return 0
   fi
-  if ! command -v jq >/dev/null 2>&1; then
-    err "Missing prerequisite: jq >= 1.6 is required. Install with: brew install jq"
-    exit 1
-  fi
+  return 0
 }
 
-canonicalize_branch() {
-  echo "${1//\//__}"
+# --- Project root detection ---
+# 1. .devflow/ in current directory? → use it
+# 2. .devflow/ at git root? → use it
+# 3. Neither? → create .devflow/ in current directory
+# NEVER go above git root.
+
+GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "Error: not inside a git repository" >&2; exit 1
 }
 
-# Match a file against glob patterns for a given classifier type.
-# Returns the type string if matched, empty string if not.
-#
-# Patterns use single-* prefix (e.g. *Entities/*.cs). In bash case statements,
-# * matches any character INCLUDING /, so *Entities/*.cs matches both
-# "Entities/Comment.cs" (root-level) and "src/Entities/Comment.cs" (nested).
-classify_file() {
-  local file="$1"
-  local type=""
-  for entry in "${DEFAULT_CLASSIFIERS[@]}"; do
-    local entry_type="${entry%%:*}"
-    local patterns="${entry#*:}"
-    IFS=':' read -ra pats <<< "$patterns"
-    for pat in "${pats[@]}"; do
-      # Use bash glob matching via case statement
-      # shellcheck disable=SC2254
-      case "$file" in
-        $pat)
-          type="$entry_type"
-          break 2
-          ;;
-      esac
-    done
-  done
-  echo "$type"
-}
+if [ -d ".devflow" ]; then
+  PROJECT_ROOT="$(pwd)"
+elif [ -d "$GIT_ROOT/.devflow" ]; then
+  PROJECT_ROOT="$GIT_ROOT"
+else
+  PROJECT_ROOT="$(pwd)"
+fi
 
-# ─── --version ────────────────────────────────────────────────────────────────
+DEVFLOW_DIR="$PROJECT_ROOT/.devflow"
+CONFIG="$DEVFLOW_DIR/config.json"
+MEMORY="$DEVFLOW_DIR/memory.md"
 
-cmd_version() {
-  echo "DevFlow $DEVFLOW_VERSION"
-  exit 0
-}
-
-# ─── --scan ───────────────────────────────────────────────────────────────────
-
-cmd_scan() {
-  check_prereqs
-
-  local head_sha
-  head_sha=$(git rev-parse HEAD 2>/dev/null || echo "none")
-
-  local branch
-  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-
-  local branch_canon
-  branch_canon=$(canonicalize_branch "$branch")
-
-  # Enumerate all tracked files
-  local all_files
-  mapfile -t all_files < <(git ls-files)
-
-  local classified_json="[]"
-  local unclassified_json="[]"
-
-  # Track which stack hint files we found
-  local stack_hints_files=()
-
-  for f in "${all_files[@]}"; do
-    local t
-    t=$(classify_file "$f")
-
-    # Collect stack hint files
-    case "$f" in
-      Program.cs|Startup.cs|*.csproj|*.sln) stack_hints_files+=("$f") ;;
-      vite.config.*) stack_hints_files+=("$f") ;;
-      package.json) stack_hints_files+=("$f") ;;
-    esac
-
-    if [[ -n "$t" && "$t" != "conventions" && "$t" != "architecture" ]]; then
-      classified_json=$(echo "$classified_json" | jq \
-        --arg file "$f" --arg type "$t" \
-        '. + [{"file": $file, "type": $type, "confidence": "high"}]')
-    elif [[ -z "$t" ]]; then
-      unclassified_json=$(echo "$unclassified_json" | jq \
-        --arg file "$f" \
-        '. + [{"file": $file}]')
-    fi
-  done
-
-  # Infer stack from hints
-  local inferred_runtime="unknown"
-  local inferred_frontend="unknown"
-  for f in "${stack_hints_files[@]}"; do
-    case "$f" in
-      Program.cs|Startup.cs|*.csproj|*.sln) inferred_runtime="dotnet-9" ;;
-      vite.config.ts|vite.config.js) inferred_frontend="sveltekit" ;;
-    esac
-  done
-
-  # Build stack_hints_files JSON array
-  local hints_json="[]"
-  for f in "${stack_hints_files[@]}"; do
-    hints_json=$(echo "$hints_json" | jq --arg f "$f" '. + [$f]')
-  done
-
-  jq -n \
-    --argjson schema_version 1 \
-    --arg head_sha "$head_sha" \
-    --arg branch "$branch" \
-    --arg branch_canonicalized "$branch_canon" \
-    --argjson classified "$classified_json" \
-    --argjson unclassified "$unclassified_json" \
-    --argjson hints_files "$hints_json" \
-    --arg runtime "$inferred_runtime" \
-    --arg frontend "$inferred_frontend" \
-    '{
-      schema_version: $schema_version,
-      head_sha: $head_sha,
-      branch: $branch,
-      branch_canonicalized: $branch_canonicalized,
-      classified: $classified,
-      unclassified: $unclassified,
-      stack_hints: {
-        files_found: $hints_files,
-        inferred: { runtime: $runtime, frontend: $frontend }
-      }
-    }'
-  exit 0
-}
-
-# ─── atomic write helper ──────────────────────────────────────────────────────
-
-# atomic_write <file> <content>
-atomic_write() {
-  local file="$1"
-  local content="$2"
-  local tmp="${file}.tmp"
-  # If target exists and is not writable, fail explicitly (mv bypasses permissions on macOS)
-  if [[ -e "$file" && ! -w "$file" ]]; then
-    err "Cannot write to $file: permission denied"
-    return 1
-  fi
-  printf '%s' "$content" > "$tmp"
-  sync 2>/dev/null || true
-  mv "$tmp" "$file"
-}
-
-# ─── install or append hook ───────────────────────────────────────────────────
-
-install_hook() {
-  local hook_file="$1"
-  local hook_body="$2"
-  local devflow_header="# DevFlow managed"
-
-  if [[ -f "$hook_file" ]]; then
-    local first_line
-    first_line=$(head -1 "$hook_file" 2>/dev/null || echo "")
-    if [[ "$first_line" == "$devflow_header" ]]; then
-      # File is entirely DevFlow-managed (header is first line) — overwrite
-      printf '#!/usr/bin/env bash\n%s\n\n%s\n' "$devflow_header" "$hook_body" > "$hook_file"
-    elif grep -q "$devflow_header" "$hook_file" 2>/dev/null; then
-      # File has DevFlow appended to existing content — keep original, replace DevFlow section
-      local sed_pattern="^${devflow_header}"
-      local original_content
-      original_content=$(sed "/${sed_pattern}/,\$d" "$hook_file")
-      printf '%s\n\n%s\n%s\n' "$original_content" "$devflow_header" "$hook_body" > "$hook_file"
-    else
-      # No DevFlow header — append
-      printf '\n%s\n%s\n' "$devflow_header" "$hook_body" >> "$hook_file"
-    fi
-  else
-    printf '#!/usr/bin/env bash\n%s\n\n%s\n' "$devflow_header" "$hook_body" > "$hook_file"
-  fi
-  chmod +x "$hook_file"
-}
-
-# ─── generate memory.md ───────────────────────────────────────────────────────
-
-render_memory_md() {
-  local branch_dir="$1"
-  local memory_json_file="${branch_dir}/memory.json"
-  local nodes_json_file="${branch_dir}/nodes.json"
-  local graph_db="${DEVFLOW_DIR:-${devflow_dir}}/graph.db"
-
-  # Section 1: Stack
-  local stack_runtime stack_frontend test_cmd
-  stack_runtime=$(jq -r '.stack.runtime // "unknown"' "$memory_json_file" 2>/dev/null || echo "unknown")
-  stack_frontend=$(jq -r '.stack.frontend // ""' "$memory_json_file" 2>/dev/null || echo "")
-  test_cmd=$(jq -r '.stack.test_cmd // ""' "$memory_json_file" 2>/dev/null || echo "")
-  local head_sha
-  head_sha=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
-  local node_count edge_count
-  node_count=$(jq '.nodes | length' "$nodes_json_file" 2>/dev/null || echo "0")
-  edge_count=$(jq '.edges | length' "${branch_dir}/edges.json" 2>/dev/null || echo "0")
-
-  printf '# DevFlow Memory\n\n'
-  printf '<!-- Generated: %s | Nodes: %s | Edges: %s -->\n\n' "$head_sha" "$node_count" "$edge_count"
-  printf '## Stack\n\n'
-  printf '%s\n' "- Runtime: ${stack_runtime}"
-  [[ -n "$stack_frontend" ]] && printf '%s\n' "- Frontend: ${stack_frontend}"
-  [[ -n "$test_cmd" ]] && printf '%s\n' "- Test: ${test_cmd}"
-  printf '\n'
-
-  # Section 2: Top Nodes by PageRank (or by inbound edge count from SQLite)
-  printf '## Top Nodes\n\n'
-  local token_count=150  # section 1 overhead
-  local max_node_tokens=2000
-
-  if [[ -f "$graph_db" ]] && command -v sqlite3 >/dev/null 2>&1; then
-    while IFS='|' read -r nid nkind nfile; do
-      [[ -z "$nid" ]] && continue
-      local line="${nid} [${nkind}] ${nfile}"
-      local line_tokens=$(( ${#line} / 4 + 2 ))
-      if [[ $(( token_count + line_tokens )) -gt $max_node_tokens ]]; then
-        break
-      fi
-      printf '%s\n' "- ${line}"
-      token_count=$(( token_count + line_tokens ))
-    done < <(sqlite3 "$graph_db" \
-      "SELECT n.id, n.kind, n.file_id FROM nodes n
-       LEFT JOIN edges e ON e.target = n.id
-       GROUP BY n.id
-       ORDER BY COUNT(e.source) DESC
-       LIMIT 100;" 2>/dev/null || true)
-  else
-    # Fallback: read from nodes.json sorted by type
-    jq -r '.nodes[] | "- \(.id) [\(.type // .kind // "source")] \(.file // .file_id // "")"' \
-      "$nodes_json_file" 2>/dev/null | head -50 || true
-  fi
-  printf '\n'
-
-  # Section 3: Edge Summary
-  printf '## Edge Summary\n\n'
-  if [[ -f "$graph_db" ]] && command -v sqlite3 >/dev/null 2>&1; then
-    local ext_count inf_count amb_count
-    ext_count=$(sqlite3 "$graph_db" "SELECT COUNT(*) FROM edges WHERE confidence >= 1.0;" 2>/dev/null || echo "0")
-    inf_count=$(sqlite3 "$graph_db" "SELECT COUNT(*) FROM edges WHERE confidence >= 0.5 AND confidence < 1.0;" 2>/dev/null || echo "0")
-    amb_count=$(sqlite3 "$graph_db" "SELECT COUNT(*) FROM edges WHERE confidence < 0.5;" 2>/dev/null || echo "0")
-    printf 'EXTRACTED: %s  INFERRED: %s  AMBIGUOUS: %s\n\n' "$ext_count" "$inf_count" "$amb_count"
-  else
-    printf 'Total edges: %s\n\n' "$edge_count"
-  fi
-
-  # Section 4: Drill-down
-  printf '## Drill-down\n\n'
-  printf 'Run `df-explain --rank` for full ranked graph.\n'
-  printf 'Run `df-explain <node-id>` for a specific node.\n'
-  printf 'Run `df-explain --diff HEAD~5 HEAD` to see recent graph changes.\n'
-}
-
-# ─── --write-memory ───────────────────────────────────────────────────────────
-
-cmd_write_memory() {
-  check_prereqs
-
-  # Read patch JSON from stdin
-  local patch
-  patch=$(cat)
-
-  # Validate JSON
-  if ! echo "$patch" | jq . >/dev/null 2>&1; then
-    err "Invalid memory patch JSON. Aborting write."
-    exit 1
-  fi
-
-  local branch
-  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-  local branch_canon
-  branch_canon=$(canonicalize_branch "$branch")
-
-  local devflow_dir=".devflow"
-  export DEVFLOW_DIR="$devflow_dir"
-  local branch_dir="${devflow_dir}/branches/${branch_canon}"
-
-  mkdir -p "$branch_dir"
-  local config_file="${devflow_dir}/config.json"
-
-  # Initialize SQLite graph store if sqlite3 is available
-  if command -v sqlite3 >/dev/null 2>&1; then
-    local graph_db="${devflow_dir}/graph.db"
-    sqlite3 "$graph_db" '
-CREATE TABLE IF NOT EXISTS nodes (
-  id      TEXT PRIMARY KEY,
-  kind    TEXT NOT NULL DEFAULT "source",
-  name    TEXT NOT NULL DEFAULT "",
-  file_id TEXT NOT NULL DEFAULT "",
-  line    INTEGER DEFAULT 0,
-  col     INTEGER DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS edges (
-  source     TEXT NOT NULL,
-  target     TEXT NOT NULL,
-  kind       TEXT NOT NULL DEFAULT "uses",
-  confidence REAL NOT NULL DEFAULT 0.7,
-  PRIMARY KEY (source, target, kind)
-);
-CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target);
-CREATE INDEX IF NOT EXISTS idx_nodes_name   ON nodes(name);
-CREATE INDEX IF NOT EXISTS idx_nodes_file   ON nodes(file_id);
-PRAGMA journal_mode=WAL;
-'
-    # Auto-migrate if nodes.json exists but graph.db is empty
-    if [[ -f "${branch_dir}/nodes.json" ]]; then
-      local db_node_count
-      db_node_count=$(sqlite3 "$graph_db" "SELECT COUNT(*) FROM nodes;" 2>/dev/null || echo 0)
-      if [[ "$db_node_count" -eq 0 ]]; then
-        local df_migrate_bin
-        df_migrate_bin="$(dirname "$(readlink -f "$0")")/df-migrate"
-        if [[ -x "$df_migrate_bin" ]]; then
-          "$df_migrate_bin" 2>/dev/null || true
-        fi
-      fi
-    fi
-  fi
-
-  # Extract each section from patch
-  local config_content memory_content nodes_content edges_content
-  config_content=$(echo "$patch" | jq '.config + {dirty: true}')
-  memory_content=$(echo "$patch" | jq '.memory')
-  nodes_content=$(echo "$patch" | jq '.nodes')
-  edges_content=$(echo "$patch" | jq '.edges')
-
-  # Acquire lock (PID-based fallback since flock unavailable on macOS)
-  local lock_file="${devflow_dir}/sync.lock"
-  if command -v flock >/dev/null 2>&1; then
-    local lock_fd
-    exec {lock_fd}>"$lock_file"
-    if ! flock -n "$lock_fd"; then
-      err "sync already running — skipping"
-      exit 0
-    fi
-  else
-    # PID-based lock fallback
-    if [[ -f "$lock_file" ]]; then
-      local old_pid
-      old_pid=$(cat "$lock_file" 2>/dev/null || echo "")
-      if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
-        err "sync already running — skipping"
-        exit 0
-      fi
-    fi
-    echo $$ > "$lock_file"
-  fi
-
-  # Set dirty:true before writes
-  atomic_write "$config_file" "$(echo "$config_content" | jq '.')"
-
-  # Re-init mode: preserve manual-confidence nodes
-  local existing_nodes_file="${branch_dir}/nodes.json"
-  if [[ -f "$existing_nodes_file" ]]; then
-    # Merge: keep manual-confidence nodes from existing
-    local merged_nodes
-    merged_nodes=$(jq -s '
-      .[0] as $new | .[1] as $existing |
-      $new | .nodes = (.nodes | map(
-        . as $node |
-        ([$existing.nodes[] | select(.id == $node.id and .confidence == "manual")] | first) as $manual |
-        if $manual then $manual else $node end
-      ))
-    ' <(echo "$nodes_content") <(cat "$existing_nodes_file"))
-    nodes_content="$merged_nodes"
-  fi
-
-  # Atomic writes
-  atomic_write "${branch_dir}/memory.json" "$(echo "$memory_content" | jq '.')"
-  atomic_write "${branch_dir}/nodes.json"  "$(echo "$nodes_content" | jq '.')"
-  atomic_write "${branch_dir}/edges.json"  "$(echo "$edges_content" | jq '.')"
-
-  # Render memory.md (reads from already-written files)
-  local memory_md
-  memory_md=$(render_memory_md "$branch_dir")
-  atomic_write "${branch_dir}/memory.md" "$memory_md"
-
-  # Create/update active symlink
-  ln -sfn "branches/${branch_canon}" "${devflow_dir}/active"
-
-  # Validate all writes
+# --- Stack detection ---
+detect_stack() {
+  local root="$1"
+  local runtime="" frontend=""
   local f
-  for f in "$config_file" "${branch_dir}/memory.json" "${branch_dir}/nodes.json" "${branch_dir}/edges.json" "${branch_dir}/memory.md"; do
-    if [[ ! -f "$f" ]]; then
-      err "Write failed: $f. Check disk space and permissions."
-      exit 1
-    fi
-  done
-  # Validate JSON files
-  for f in "$config_file" "${branch_dir}/memory.json" "${branch_dir}/nodes.json" "${branch_dir}/edges.json"; do
-    if ! jq . "$f" >/dev/null 2>&1; then
-      err "Write failed: $f is not valid JSON."
-      exit 1
-    fi
+
+  for f in "$root/package.json" "$root/vite.config.ts" "$root/vite.config.js" \
+            "$root/next.config.js" "$root/next.config.ts" \
+            "$root/requirements.txt" "$root/go.mod" "$root/Cargo.toml" \
+            "$root/Gemfile" "$root/pyproject.toml"; do
+    [ -f "$f" ] || continue
+    case "$(basename "$f")" in
+      package.json) runtime="nodejs" ;;
+      vite.config.*) frontend="sveltekit" ;;
+      next.config.*) frontend="nextjs" ;;
+      requirements.txt|pyproject.toml) runtime="python" ;;
+      go.mod) runtime="go" ;;
+      Cargo.toml) runtime="rust" ;;
+      Gemfile) runtime="ruby" ;;
+    esac
   done
 
-  # Install git hooks
-  local hooks_dir=".git/hooks"
-  if [[ -d "$hooks_dir" ]]; then
-    install_hook "${hooks_dir}/post-commit" "df-sync --quick"
-    # shellcheck disable=SC2016
-    install_hook "${hooks_dir}/post-checkout" '[ "$3" = "1" ] || exit 0
-df-sync --quick --branch-switch'
+  # Check for .NET (csproj/sln files anywhere in project)
+  if find "$root" -maxdepth 3 -name "*.csproj" -o -name "*.sln" 2>/dev/null | head -1 | grep -q '\.\(csproj\|sln\)'; then
+    runtime="dotnet"
   fi
 
-  # Clear dirty flag
-  local config_clean
-  config_clean=$(echo "$config_content" | jq '.dirty = false')
-  atomic_write "$config_file" "$(echo "$config_clean" | jq '.')"
-
-  # Release lock
-  if command -v flock >/dev/null 2>&1; then
-    # lock_fd released when subshell exits; explicit unlock for clarity
-    true
-  else
-    rm -f "$lock_file"
-  fi
-
-  exit 0
+  echo "{\"runtime\":\"${runtime:-unknown}\",\"frontend\":\"${frontend:-null}\"}"
 }
 
-# ─── --reset ──────────────────────────────────────────────────────────────────
-
-cmd_reset() {
-  check_prereqs
-
-  local branch
-  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-  local branch_canon
-  branch_canon=$(canonicalize_branch "$branch")
-
-  local devflow_dir=".devflow"
-  local branch_dir="${devflow_dir}/branches/${branch_canon}"
-  local snapshots_dir="${devflow_dir}/snapshots"
-
-  if [[ ! -d "$branch_dir" ]]; then
-    err "No .devflow/branches/${branch_canon}/ found. Nothing to reset."
-    exit 0
+# --- Check codebase-memory-mcp is available ---
+check_mcp() {
+  if ! command -v codebase-memory-mcp &>/dev/null; then
+    echo "Error: codebase-memory-mcp not found." >&2
+    echo "Install with: df-install --mcp" >&2
+    exit 1
   fi
-
-  # Snapshot current branch files before wipe
-  local timestamp
-  timestamp=$(date +%Y%m%d%H%M%S)
-  local snapshot_dir="${snapshots_dir}/${timestamp}"
-  mkdir -p "$snapshot_dir"
-  cp -r "${branch_dir}/." "$snapshot_dir/"
-
-  # Wipe current branch directory only
-  rm -rf "$branch_dir"
-
-  echo "[DevFlow] Reset complete. Memory rebuilt from scratch for branch ${branch}."
-  echo "[DevFlow] Snapshot saved to ${snapshot_dir}"
-  echo "[DevFlow] Run df-init --write-memory to reinitialize."
-  exit 0
 }
 
-# ─── dispatch ─────────────────────────────────────────────────────────────────
+case "$MODE" in
+  scan)
+    check_mcp
+    STACK=$(detect_stack "$PROJECT_ROOT")
+    echo "{\"project_root\":\"$PROJECT_ROOT\",\"git_root\":\"$GIT_ROOT\",\"stack\":$STACK}"
+    ;;
 
-case "${1:-}" in
-  --version) cmd_version ;;
-  --scan)    cmd_scan    ;;
-  --write-memory) cmd_write_memory ;;
-  --reset) cmd_reset ;;
-  *) echo "[DevFlow] Unknown command: ${1:-}. Use --scan, --write-memory, --reset, or --version." >&2; exit 1 ;;
+  write-memory|init)
+    check_mcp
+    mkdir -p "$DEVFLOW_DIR"
+
+    # Index repository via codebase-memory-mcp CLI
+    echo "[df-init] Indexing repository..."
+    codebase-memory-mcp cli index_repository "{\"repo_path\":\"$PROJECT_ROOT\"}" || {
+      echo "Error: codebase-memory-mcp indexing failed" >&2; exit 1
+    }
+
+    # Get architecture overview
+    echo "[df-init] Generating memory..."
+    ARCH=$(codebase-memory-mcp cli get_architecture "{}" 2>/dev/null || echo "{}")
+
+    # Get top nodes by graph degree (proxy for PageRank)
+    TOP_NODES=$(codebase-memory-mcp cli search_graph \
+      "{\"limit\":50,\"min_degree\":2}" 2>/dev/null || echo "[]")
+
+    # Detect stack
+    STACK=$(detect_stack "$PROJECT_ROOT")
+
+    # Write config.json if not present
+    if [ ! -f "$CONFIG" ]; then
+      SERVICE=$(basename "$PROJECT_ROOT")
+      cat > "$CONFIG" << JSON
+{
+  "service": "$SERVICE",
+  "mode": "project",
+  "stack": $STACK,
+  "last_synced": "$(git rev-parse HEAD 2>/dev/null || echo 'unknown')",
+  "classifiers": [],
+  "review_checks": ["naming","test-coverage","unclassified","impact-radius","dead-code","clone-detection"],
+  "auto_skills": [],
+  "quality_hooks": {}
+}
+JSON
+    else
+      # Update last_synced only
+      TMP=$(mktemp)
+      python3 -c "
+import json, sys
+c = json.load(open('$CONFIG'))
+c['last_synced'] = '$(git rev-parse HEAD 2>/dev/null || echo unknown)'
+json.dump(c, open('$TMP','w'), indent=2)
+"
+      mv "$TMP" "$CONFIG"
+    fi
+
+    # Render memory.md
+    python3 - "$MEMORY" "$ARCH" "$TOP_NODES" << 'PYEOF'
+import json, sys
+
+memory_path = sys.argv[1]
+arch = json.loads(sys.argv[2]) if sys.argv[2] != '{}' else {}
+nodes = json.loads(sys.argv[3]) if sys.argv[3] != '[]' else []
+
+lines = ["# DevFlow Memory\n"]
+
+# Architecture section
+lines.append("## Architecture\n")
+if arch:
+    if arch.get("languages"):
+        lines.append(f"**Languages:** {', '.join(arch['languages'])}\n")
+    if arch.get("entry_points"):
+        lines.append(f"**Entry Points:** {', '.join(arch['entry_points'][:5])}\n")
+    if arch.get("clusters"):
+        lines.append(f"**Modules:** {', '.join(arch['clusters'][:5])}\n")
+    if arch.get("hotspots"):
+        lines.append(f"**Hotspots:** {', '.join(str(h) for h in arch['hotspots'][:5])}\n")
+
+lines.append("\n## Top Nodes\n")
+for n in nodes[:50]:
+    name = n.get("name", "?")
+    label = n.get("label", "?")
+    file_ = n.get("file", "")
+    lines.append(f"- **{name}** [{label}] — {file_}\n")
+
+content = "\n".join(lines)
+# Cap at ~2500 tokens (~10000 chars)
+if len(content) > 10000:
+    content = content[:9900] + "\n\n[truncated for token budget]\n"
+
+with open(memory_path, "w") as f:
+    f.write(content)
+print(f"[df-init] memory.md written ({len(content)} chars)")
+PYEOF
+
+    echo "[df-init] ✅ DevFlow initialized at $DEVFLOW_DIR"
+    ;;
+
+  reset)
+    rm -rf "$DEVFLOW_DIR"
+    echo "[df-init] Reset complete. Run /df-init to reinitialize."
+    ;;
+
+  orchestrator)
+    mkdir -p "$DEVFLOW_DIR"
+    # Discover child .devflow/ directories
+    PROJECTS="[]"
+    while IFS= read -r -d '' dir; do
+      path="${dir%/.devflow}"
+      name="$(basename "$path")"
+      rel="$(python3 -c "import os; print(os.path.relpath('$path', '$PROJECT_ROOT'))")"
+      PROJECTS=$(echo "$PROJECTS" | python3 -c "
+import json,sys
+p=json.load(sys.stdin)
+p.append({'name':'$name','path':'$rel'})
+print(json.dumps(p))
+")
+    done < <(find "$PROJECT_ROOT" -mindepth 2 -maxdepth 4 -name ".devflow" -type d -print0)
+
+    cat > "$CONFIG" << JSON
+{
+  "service": "$(basename "$PROJECT_ROOT")",
+  "mode": "orchestrator",
+  "projects": $PROJECTS,
+  "last_synced": "$(git rev-parse HEAD 2>/dev/null || echo 'unknown')"
+}
+JSON
+    echo "[df-init] ✅ Orchestrator initialized with projects: $PROJECTS"
+    ;;
 esac
