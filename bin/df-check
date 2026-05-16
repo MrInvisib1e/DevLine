@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# df-check — run quality hooks (lint/format/typecheck) for current project
+# Usage: df-check [--lint-only] [--format-only] [--typecheck-only] [--no-fix] [--headless]
+# Exit codes: 0=all pass, 1=typecheck failed (blocking), 2=lint/format issues (advisory)
+
+set -euo pipefail
+
+HEADLESS=false
+for arg in "$@"; do
+  [ "$arg" = "--headless" ] && HEADLESS=true
+done
+
+DEVFLOW_DIR="$(git rev-parse --show-toplevel 2>/dev/null)/.devflow"
+CONFIG="$DEVFLOW_DIR/config.json"
+LINT_ONLY=false
+FORMAT_ONLY=false
+TYPECHECK_ONLY=false
+NO_FIX=false
+EXIT_CODE=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --lint-only) LINT_ONLY=true ;;
+    --format-only) FORMAT_ONLY=true ;;
+    --typecheck-only) TYPECHECK_ONLY=true ;;
+    --no-fix) NO_FIX=true ;;
+  esac
+done
+
+# Read quality_hooks from config if available
+if [ -f "$CONFIG" ]; then
+  LINT_CMD=$(python3 -c "import json,sys; c=json.load(open('$CONFIG')); h=c.get('quality_hooks',{}); print(h.get('lint',''))" 2>/dev/null || echo "")
+  FORMAT_CMD=$(python3 -c "import json,sys; c=json.load(open('$CONFIG')); h=c.get('quality_hooks',{}); print(h.get('format',''))" 2>/dev/null || echo "")
+  TYPECHECK_CMD=$(python3 -c "import json,sys; c=json.load(open('$CONFIG')); h=c.get('quality_hooks',{}); print(h.get('typecheck',''))" 2>/dev/null || echo "")
+else
+  # Auto-detect from project files
+  ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+  LINT_CMD=""
+  FORMAT_CMD=""
+  TYPECHECK_CMD=""
+  if [ -f "$ROOT/package.json" ]; then
+    LINT_CMD="npx eslint --fix ."
+    FORMAT_CMD="npx prettier --write ."
+    if [ -f "$ROOT/tsconfig.json" ]; then
+      TYPECHECK_CMD="npx tsc --noEmit"
+    fi
+  elif find "$ROOT" -maxdepth 3 -name "*.csproj" 2>/dev/null | head -1 | grep -q csproj; then
+    LINT_CMD=""
+    FORMAT_CMD="dotnet format"
+    TYPECHECK_CMD="dotnet build --no-restore -warnaserror"
+  elif [ -f "$ROOT/Cargo.toml" ]; then
+    LINT_CMD="cargo clippy -- -D warnings"
+    FORMAT_CMD="cargo fmt"
+    TYPECHECK_CMD="cargo check"
+  elif [ -f "$ROOT/go.mod" ]; then
+    LINT_CMD="golangci-lint run"
+    FORMAT_CMD="gofmt -w ."
+    TYPECHECK_CMD="go build ./..."
+  fi
+fi
+
+# Run typecheck (blocking — exit 1 on failure)
+if [ "$LINT_ONLY" = false ] && [ "$FORMAT_ONLY" = false ] && [ -n "${TYPECHECK_CMD:-}" ]; then
+  echo "[df-check] typecheck: $TYPECHECK_CMD"
+  if ! eval "$TYPECHECK_CMD"; then
+    echo "[df-check] ❌ TYPECHECK FAILED (blocking)"
+    exit 1
+  fi
+  echo "[df-check] ✅ typecheck passed"
+elif [ "$LINT_ONLY" = false ] && [ "$FORMAT_ONLY" = false ] && [ -z "${TYPECHECK_CMD:-}" ]; then
+  echo "[df-check] (no typecheck configured)"
+fi
+
+# Run format (advisory — auto-fix if possible)
+if [ "$LINT_ONLY" = false ] && [ "$TYPECHECK_ONLY" = false ] && [ -n "${FORMAT_CMD:-}" ]; then
+  echo "[df-check] format: $FORMAT_CMD"
+  if [ "$NO_FIX" = true ]; then
+    FORMAT_CMD="${FORMAT_CMD/--write/--check}"
+    FORMAT_CMD="${FORMAT_CMD/ -w / --dry-run }"
+  fi
+  if ! eval "$FORMAT_CMD" 2>/dev/null; then
+    echo "[df-check] ⚠️  format issues found (advisory)"
+    EXIT_CODE=2
+  fi
+fi
+
+# Run lint (advisory — auto-fix if possible)
+if [ "$FORMAT_ONLY" = false ] && [ "$TYPECHECK_ONLY" = false ] && [ -n "${LINT_CMD:-}" ]; then
+  echo "[df-check] lint: $LINT_CMD"
+  if [ "$NO_FIX" = true ]; then
+    LINT_CMD="${LINT_CMD/ --fix/}"
+  fi
+  if ! eval "$LINT_CMD" 2>/dev/null; then
+    echo "[df-check] ⚠️  lint issues found (advisory)"
+    EXIT_CODE=2
+  fi
+fi
+
+exit $EXIT_CODE
