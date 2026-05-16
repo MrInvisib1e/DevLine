@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# DevFlow post-commit: async memory regeneration
+# Runs in background — never blocks commit
+
+DEVFLOW_DIR="$(git rev-parse --show-toplevel 2>/dev/null)/.devflow"
+[ -d "$DEVFLOW_DIR" ] || exit 0
+
+(
+  # Regenerate memory in background after commit
+  sleep 0.1
+  df-init --write-memory > /dev/null 2>&1
+  # Update last_synced
+  HEAD=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+  python3 -c "
+import json
+cfg = '$DEVFLOW_DIR/config.json'
+try:
+    c = json.load(open(cfg))
+    c['last_synced'] = '$HEAD'
+    json.dump(c, open(cfg, 'w'), indent=2)
+except:
+    pass
+" 2>/dev/null
+) &
+
+exit 0
