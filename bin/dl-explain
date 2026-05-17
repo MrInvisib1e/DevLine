@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-DEVLINE_VERSION="4.0.0"
+DEVLINE_VERSION="0.5.0"
 
 if [[ "${1:-}" == "--version" || "${1:-}" == "-v" ]]; then
   echo "Devline dl-explain $DEVLINE_VERSION"
