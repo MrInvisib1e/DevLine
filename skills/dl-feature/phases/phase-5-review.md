@@ -1,27 +1,51 @@
-## Phase 5: Final Review
+## Phase 5: Two-Stage Review
 
-Goal: holistic architecture-aware review of the complete feature.
+Goal: verify the feature meets PRD requirements (Stage 1) AND code quality standards (Stage 2).
 
-### Step 1: Dispatch Final Review Agent
+### Stage 1: Spec Compliance Review
+
+Dispatch spec compliance reviewer:
+
+Combine:
+- `agents/spec-reviewer.md` — role/contract
+- Full `plan.md` (PRD + domain + all slice statuses)
+- All files changed across all slices
+- Full test results from Phase 4
+
+Wait for Spec Compliance Report.
+
+#### Handle Stage 1 Result
+
+| Result | Action |
+|--------|--------|
+| PASS | Proceed to Stage 2 |
+| FAIL | Read BLOCKING_ISSUES → re-open affected slices → re-run Phase 3 for affected slices → re-run Stage 1 |
+| FAIL after >2 cycles | Escalate to user — present all findings, ask for direction |
+| DEFAULT | Proceed to Stage 2 |
+
+CHECKPOINT: "[Devline] Stage 1 (spec compliance): PASS"
+
+### Stage 2: Code Quality Review
+
+Dispatch final review agent:
 
 Combine:
 - `agents/final-review.md` — role/contract
 - Full `plan.md` (PRD + domain + all slice statuses + integration results)
-- All files changed across all slices (from each slice's `files_changed`)
+- All files changed across all slices
 - `.devline/memory/` — project architecture context
 
 Wait for Final Review Report.
 
-### Step 2: Handle Result
+#### Handle Stage 2 Result
 
-**PASS:** Proceed to Phase 6. Record `## Phase 5 Status: COMPLETE` in `plan.md`.
+| Result | Action |
+|--------|--------|
+| PASS | Proceed to Phase 6. Record `## Phase 5 Status: COMPLETE` in `plan.md` |
+| FAIL | Read BLOCKING_ISSUES → determine affected slices → re-open → re-run Phase 3 → re-run Stage 2 |
+| FAIL after >2 cycles | Escalate to user — present all findings, ask for direction |
+| DEFAULT | Proceed to Phase 6 |
 
-**FAIL:**
-- Read BLOCKING_ISSUES and Required Changes
-- Determine which slices are affected
-- Re-open affected slices: reset `status: "pending"`, create new slice JSON/MD for fix if needed
-- Re-run Phase 3 for affected slices only
-- Re-run Phase 5 after fixes
-- If FAIL after >2 cycles: escalate to user — present all findings and ask for direction
+CHECKPOINT: "[Devline] Stage 2 (code quality): PASS"
 
-Write final review result to `plan.md` under `## Final Review`.
+Write both review results to `plan.md` under `## Final Review`.
