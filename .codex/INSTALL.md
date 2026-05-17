@@ -6,7 +6,7 @@ Codex does not support automatic plugin installation. Manual setup:
 
 1. Clone Devline:
    ```bash
-   git clone https://github.com/<user>/Development-Flow.git ~/.devline
+   git clone https://github.com/MrInvisib1e/devline.git ~/.devline
    ```
 
 2. Add to PATH (in `~/.zshrc` or `~/.bashrc`):

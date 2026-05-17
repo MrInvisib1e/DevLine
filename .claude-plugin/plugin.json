@@ -1,12 +1,12 @@
 {
   "name": "devline",
   "description": "AI development workflow skills — makes AI behave like a senior engineer. PRD-first, domain analysis, vertical slices, accurate codebase memory.",
-  "version": "4.0.0",
+  "version": "0.6.0",
   "author": {
     "name": "Devline"
   },
-  "homepage": "https://github.com/yourusername/Development-Flow",
-  "repository": "https://github.com/yourusername/Development-Flow",
+  "homepage": "https://github.com/MrInvisib1e/devline",
+  "repository": "https://github.com/MrInvisib1e/devline",
   "license": "MIT",
   "keywords": [
     "skills",

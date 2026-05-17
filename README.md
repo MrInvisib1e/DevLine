@@ -58,7 +58,7 @@ bin/
 ### One command
 
 ```bash
-git clone https://github.com/<your-username>/Development-Flow.git ~/.devline
+git clone https://github.com/MrInvisib1e/devline.git ~/.devline
 ~/.devline/bin/dl-install
 ~/.devline/bin/dl-install --mcp
 ```
@@ -107,7 +107,7 @@ dl-explain --rank   # should print ranked nodes (run inside a git repo after /dl
 `dl-install` adds the local path to `opencode.json` automatically. Or manually:
 ```json
 {
-  "plugin": ["devline@git+https://github.com/<your-username>/Development-Flow.git"]
+  "plugin": ["devline@git+https://github.com/MrInvisib1e/devline.git"]
 }
 ```
 
@@ -116,7 +116,7 @@ dl-explain --rank   # should print ranked nodes (run inside a git repo after /dl
 #### Gemini CLI
 
 ```bash
-gemini extensions install https://github.com/<your-username>/Development-Flow
+gemini extensions install https://github.com/MrInvisib1e/devline
 ```
 
 ---
@@ -335,7 +335,7 @@ Net result: `/dl-feature` has 3 gates. `/dl-fix` has 1 (exhausted cycles). `/dl-
 ## Project layout
 
 ```
-Development-Flow/
+devline/
   bin/
     dl-init, dl-explain, dl-check, dl-test
     dl-workspace, dl-install, dl-benchmark

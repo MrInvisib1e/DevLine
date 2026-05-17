@@ -1,6 +1,6 @@
 {
   "name": "@devline/cli",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Skill library that makes AI coding assistants behave like senior engineers",
   "type": "module",
   "main": ".opencode/plugins/devline.js",

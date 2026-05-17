@@ -5,7 +5,7 @@ import { join, dirname } from "path"
 import { fileURLToPath } from "url"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const ROOT = join(__dirname, "../..")  // Development-Flow root
+const ROOT = join(__dirname, "../..")  // devline root
 
 function getBootstrapContent() {
   const skillPath = join(ROOT, "skills/using-devline/SKILL.md")
