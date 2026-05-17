@@ -51,7 +51,9 @@ If `codebase-memory-mcp` is unavailable:
 | Situation | Call |
 |-----------|------|
 | Post-commit (auto) | Handled by hook — no manual call needed |
+| Branch switch (auto) | Handled by post-checkout hook — no manual call needed |
 | About to run `/dl-review` or `/dl-fix` | Call if `last_synced != HEAD` |
 | After major refactor before planning | Manual call |
 | Memory looks wrong / stale | Manual call |
-| DEFAULT | Trust the post-commit hook |
+| After successful feature completion | Handled by Phase 6 — no manual call needed |
+| DEFAULT | Trust the hooks |

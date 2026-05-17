@@ -46,13 +46,14 @@ Wait for user input before proceeding.
 
 ### Step 4 — Install hooks (T1 Silent)
 
-Install post-commit hook:
+Install git hooks:
 ```bash
 cp ~/.devline/hooks/post-commit .git/hooks/post-commit
-chmod +x .git/hooks/post-commit
+cp ~/.devline/hooks/post-checkout .git/hooks/post-checkout
+chmod +x .git/hooks/post-commit .git/hooks/post-checkout
 ```
 
-T2 Inform: "Post-commit hook installed — memory updates automatically after each commit."
+T2 Inform: "Hooks installed — memory updates on commit and branch switch."
 
 ## Orchestrator Mode
 
