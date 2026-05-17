@@ -22,6 +22,7 @@ If absent: HALT — "Run `/dl-init` first."
 | `/dl-sync` | Regenerate memory.md |
 | `/dl-verify` | Pre-completion verification gate |
 | `/dl-benchmark` | A/B test skills with falsifiable assertions |
+| `/web-style` | Web component/page | Audit styling, accessibility, design system compliance |
 
 ---
 
@@ -45,6 +46,7 @@ Check for applicable skills BEFORE any response or action. Even 1% chance a skil
 | Architecture decision | `architecture` skill |
 | Code review received | `receiving-review` skill |
 | Writing a new skill | `writing-skills` skill + `tdd` skill |
+| Styling, accessibility, WCAG, contrast, design tokens, responsive | `web-style` |
 
 ### Quick feature vs /dl-fix
 
