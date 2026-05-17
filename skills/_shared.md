@@ -47,6 +47,23 @@ Every T1 action MUST be logged to the AI's in-session working memory as:
 This list is available on request but is NOT printed automatically.
 It enables post-session audit of what was done silently.
 
+## Session Event Log
+
+Skills SHOULD call `dl-log` at key lifecycle points. This is T1 Silent — never blocks.
+
+| Event | When | Example |
+|-------|------|---------|
+| `skill_start` | Skill begins | `dl-log skill_start --skill dl-feature` |
+| `phase_start` | Phase begins | `dl-log phase_start --skill dl-feature --phase 0` |
+| `phase_end` | Phase completes | `dl-log phase_end --skill dl-feature --phase 0` |
+| `gate_hit` | T3 gate reached | `dl-log gate_hit --skill dl-feature --step "PRD approval"` |
+| `agent_dispatch` | Agent dispatched | `dl-log agent_dispatch --step "slice-impl" --meta '{"slice":"auth"}'` |
+| `agent_done` | Agent returns | `dl-log agent_done --step "slice-impl" --meta '{"status":"DONE"}'` |
+| `error` | Error occurs | `dl-log error --skill dl-fix --meta '{"code":"E04"}'` |
+| `skill_end` | Skill completes | `dl-log skill_end --skill dl-feature` |
+
+Session logs are stored in `.devline/sessions/session.jsonl` (one JSON object per line).
+
 ## Unified Status Model
 
 | Agent Type | Valid Statuses |

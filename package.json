@@ -14,7 +14,8 @@
     "dl-test": "./bin/dl-test",
     "dl-workspace": "./bin/dl-workspace",
     "dl-benchmark": "./bin/dl-benchmark",
-    "dl-update": "./bin/dl-update.mjs"
+    "dl-update": "./bin/dl-update.mjs",
+    "dl-log": "./bin/dl-log"
   },
   "files": [
     "bin/",

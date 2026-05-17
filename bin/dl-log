@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# dl-log — Append structured events to session log
+# Usage: dl-log <event> [--skill <name>] [--phase <n>] [--step <desc>] [--tokens <n>] [--meta <json>]
+# Events are appended to .devline/sessions/session.jsonl
+
+set -euo pipefail
+
+DEVLINE_DIR="$(git rev-parse --show-toplevel 2>/dev/null)/.devline"
+[ -d "$DEVLINE_DIR" ] || { echo "dl-log: .devline/ not found" >&2; exit 1; }
+
+SESSION_DIR="$DEVLINE_DIR/sessions"
+mkdir -p "$SESSION_DIR"
+
+# Parse args
+EVENT="${1:?Usage: dl-log <event> [--skill <name>] [--phase <n>] [--step <desc>] [--tokens <n>] [--meta <json>]}"
+shift
+
+SKILL="" PHASE="" STEP="" TOKENS="" META="{}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --skill)  SKILL="$2"; shift 2 ;;
+    --phase)  PHASE="$2"; shift 2 ;;
+    --step)   STEP="$2"; shift 2 ;;
+    --tokens) TOKENS="$2"; shift 2 ;;
+    --meta)   META="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+# Build JSON event
+TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+python3 -c "
+import json, sys
+event = {
+    'ts': '$TS',
+    'event': '$EVENT',
+    'skill': '$SKILL' if '$SKILL' else None,
+    'phase': int('$PHASE') if '$PHASE' else None,
+    'step': '$STEP' if '$STEP' else None,
+    'tokens_est': int('$TOKENS') if '$TOKENS' else None,
+    'meta': json.loads(r'''$META''') if '$META' != '{}' else None
+}
+# Remove None values
+event = {k: v for k, v in event.items() if v is not None}
+print(json.dumps(event))
+" >> "$SESSION_DIR/session.jsonl"
+
+# Status line on stderr
+>&2 printf '[Devline] %s' "$EVENT"
+[[ -n "$SKILL" ]] && >&2 printf ' | skill=%s' "$SKILL"
+[[ -n "$PHASE" ]] && >&2 printf ' | phase=%s' "$PHASE"
+[[ -n "$STEP" ]] && >&2 printf ' | step=%s' "$STEP"
+>&2 printf '\n'
