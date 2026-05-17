@@ -109,3 +109,13 @@ Typical CI usage:
 | "This is my opinion but it's right" | Not a convention = not a finding. |
 | "Too many findings, cut it short" | Report all. Let user prioritize. |
 | "Tests pass so review can be lenient" | Tests = behavior. Review = architecture. Both. |
+
+## Red Flags — STOP
+
+- Skipping convention checks because "code looks fine"
+- Approving without reading memory.md conventions
+- "Minor issues, not worth mentioning" — mention everything
+- Running review on uncommitted changes (commit first)
+- Reviewing your own code without fresh context
+
+**Stop. Load conventions. Check everything.**

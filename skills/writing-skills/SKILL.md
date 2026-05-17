@@ -653,3 +653,14 @@ Same cycle: RED (baseline) → GREEN (write skill) → REFACTOR (close loopholes
 Same benefits: Better quality, fewer surprises, bulletproof results.
 
 If you follow TDD for code, follow it for skills. It's the same discipline applied to documentation.
+
+## Red Flags — STOP
+
+- Writing a skill without testing it first
+- Prose paragraphs instead of tables/lists (SIF violation)
+- Missing DEFAULT row in decision tables
+- No Iron Law defined
+- No Rationalization Prevention table
+- Skill file > 300 lines without splitting into sub-files
+
+**Stop. Re-read SIF rules. Follow the structure.**

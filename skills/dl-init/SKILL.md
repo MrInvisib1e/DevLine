@@ -67,6 +67,16 @@ Then reference each project using `--project <name>` in dl-explain queries.
 
 Memory is regenerated automatically on commit. To force refresh: `/dl-sync`
 
+## Red Flags — STOP
+
+- Skipping MCP check because "I'll install it later"
+- Running `--write-memory` without `--scan` first on a new repo
+- Proceeding past Step 3 gate without user input
+- Initializing inside a subdirectory when git root has no `.devline/`
+- "Memory looks fine" without checking `last_synced` vs HEAD
+
+**Stop. Re-read the workflow. Follow the steps.**
+
 ## Error Reference
 
 | Code | Trigger | Action |

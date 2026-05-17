@@ -57,3 +57,12 @@ If `codebase-memory-mcp` is unavailable:
 | Memory looks wrong / stale | Manual call |
 | After successful feature completion | Handled by Phase 6 — no manual call needed |
 | DEFAULT | Trust the hooks |
+
+## Red Flags — STOP
+
+- Skipping sync because "memory is probably fine"
+- Proceeding with stale memory when sync is available
+- Running sync during an active agent dispatch (wait for agent to finish)
+- "Memory was just synced" without checking `last_synced` vs HEAD
+
+**Stop. Check staleness. Sync if needed.**

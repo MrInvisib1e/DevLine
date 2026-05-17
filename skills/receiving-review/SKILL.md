@@ -211,3 +211,13 @@ When replying to inline review comments on GitHub, reply in the comment thread (
 Verify. Question. Then implement.
 
 No performative agreement. Technical rigor always.
+
+## Red Flags — STOP
+
+- "Good point, I'll fix that" without verifying the feedback is correct
+- Implementing all suggestions without YAGNI check
+- Agreeing with feedback you don't understand
+- Changing code without re-running tests
+- "I'll address this later" on blocking feedback
+
+**Stop. Verify feedback. Test changes. Push back if wrong.**

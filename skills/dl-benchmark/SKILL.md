@@ -170,3 +170,13 @@ Automated replay (isolate agent, inject scenario, capture output programmaticall
 | Write one assertion that tests everything | One assertion = one failure mode. Be specific. |
 | Write a scenario that's too complex | Complex scenarios have too many variables. Keep them minimal. |
 | Skip the control run | Without a control, you don't know if the skill caused the improvement. |
+
+## Red Flags — STOP
+
+- Running benchmark without a baseline (control run first)
+- Assertions that can't fail (unfalsifiable)
+- "Close enough" on grading — use the rubric
+- Skipping isolation (other skills/rules active during benchmark)
+- Comparing runs with different context sizes
+
+**Stop. Re-read the benchmark protocol. Follow it.**

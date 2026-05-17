@@ -158,3 +158,14 @@ T2 Inform: "ADR saved to knowledge graph — will appear in future `get_architec
 | "TDD adds steps to the plan" | TDD steps take 5 minutes. Debugging untested code takes hours. |
 | "Plan is too long" | Shorter plans skip steps. They get stuck. |
 | "Similar to Task N" | Always write the full code. The executor reads tasks independently. |
+
+## Red Flags — STOP
+
+- Writing a plan without brainstorming first
+- Skipping research phase because "I know this domain"
+- Plan steps that say "implement X" without showing code
+- Referencing types/functions not defined in any task
+- "TBD", "TODO", or "fill in later" anywhere in the plan
+- Proceeding to execution without user approval
+
+**Stop. Re-read the plan. Fill in every gap.**
