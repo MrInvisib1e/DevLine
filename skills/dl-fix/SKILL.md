@@ -1,6 +1,13 @@
-# /dl-fix — Hypothesis-Driven Bug Fixing
+---
+name: devline-fix
+description: Hypothesis-driven bug fixing with 4-phase investigation
+requires: [dl-sync]
+triggers_on_complete: [dl-verify]
+---
 
-Fix bugs using memory-aware hypothesis-driven debugging. Max 3 cycles.
+# /dl-fix — 4-Phase Hypothesis-Driven Bug Fixing
+
+Fix bugs using memory-aware, structured investigation. Max 3 cycles per phase.
 
 **Invoked as:** `/dl-fix <bug description>`
 
@@ -8,10 +15,10 @@ Fix bugs using memory-aware hypothesis-driven debugging. Max 3 cycles.
 
 ## Iron Law
 
-```
+<iron-law>
 NO FIX WITHOUT ROOT CAUSE FIRST.
 NO FIX WITHOUT A FAILING TEST FIRST (TDD).
-```
+</iron-law>
 
 ---
 
@@ -27,7 +34,9 @@ NO FIX WITHOUT A FAILING TEST FIRST (TDD).
 
 ---
 
-## Step 1 — Node Inference (T2 Inform)
+## Phase 1 — Root Cause Investigation (T2 Inform)
+
+### Step 1.1 — Node Inference
 
 Parse bug description → infer most likely symbol name.
 
@@ -37,70 +46,138 @@ Returns related symbols + call paths.
 
 Print: "Investigating: `{symbol}` and `{N}` related nodes."
 
----
-
-## Step 2 — Change Impact (T2 Inform)
+### Step 1.2 — Change Impact
 
 Run: `dl-explain --impact`
 
-This calls `detect_changes` — maps uncommitted diff (if any) to affected symbols + blast radius.
+Maps uncommitted diff to affected symbols + blast radius.
 
 Print the risk classification.
 
----
-
-## Step 3 — Context + Hypothesis (T2 Inform)
+### Step 1.3 — Evidence Gathering
 
 1. Read `.devline/memory.md` (architecture + conventions)
-2. State hypothesis explicitly BEFORE reading any source code:
-   ```
-   Hypothesis: `{file}` is failing because `{reason}`
-   ```
-3. Print file list to read; read them
+2. Read error messages carefully — they often contain the exact solution
+3. Reproduce the bug consistently — exact steps, every time
+4. Check recent changes: `git log --oneline -10`, `git diff`
+5. For multi-component systems, trace data at each boundary:
+
+| Boundary | Check |
+|----------|-------|
+| Entry point | What data enters? |
+| Each layer | What data exits? |
+| Config/env | Does it propagate correctly? |
+| State | Is it consistent at each layer? |
+| DEFAULT | Log input/output at the boundary |
+
+CHECKPOINT: "[Devline] Phase 1 complete: evidence gathered"
 
 ---
 
-## Behavior Contract (T3 Gate — required before any fix)
+## Phase 2 — Pattern Analysis (T2 Inform)
 
-After forming hypothesis, write this contract and show it to the user:
+1. Find working examples in the codebase that do similar things
+2. Compare against references — read them COMPLETELY, not just the first few lines
+3. List every difference between working code and broken code
+4. Understand dependencies: what config, environment, or assumptions does the working code rely on?
+
+| Finding | Action |
+|---------|--------|
+| Working example found | List differences with broken code |
+| No working example | Check external docs, memory.md patterns |
+| Pattern mismatch found | This is likely the root cause — proceed to Phase 3 |
+| DEFAULT | Document what you found, proceed to Phase 3 |
+
+CHECKPOINT: "[Devline] Phase 2 complete: patterns analyzed"
+
+---
+
+## Phase 3 — Hypothesis & Testing (T2 Inform)
+
+### Step 3.1 — Form Hypothesis
+
+State hypothesis explicitly BEFORE reading source code:
+```
+Hypothesis: `{file}` is failing because `{reason}`
+Evidence: `{what supports this}`
+```
+
+### Step 3.2 — Behavior Contract (T3 Gate)
+
+Write this contract and show it to the user:
 
 ```
-Given:        [precondition — system state before the action]
-When:         [action that triggers the bug]
-Currently:    [what happens now — the wrong behavior]
-Expected:     [what should happen — correct behavior]
+Given:           [precondition — system state before the action]
+When:            [action that triggers the bug]
+Currently:       [what happens now — the wrong behavior]
+Expected:        [what should happen — correct behavior]
 Anti-regression: [name of test that proves fix works AND would fail without it]
+Root cause:      [the specific code/config/state that causes the bug]
 ```
 
 Wait for user to confirm or correct the contract before proceeding.
 
----
+### Step 3.3 — Test Hypothesis Minimally
 
-## Cycle Loop (max 3)
-
-**TDD — write failing test FIRST (Iron Law)**
-
-1. Write test that matches the Anti-regression from behavior contract
-2. Run test — MUST fail (if it passes immediately, hypothesis is wrong — stop and revise)
-3. Apply fix — ONLY to hypothesis-identified files
-4. Run `dl-check --typecheck-only` — type errors BLOCK (exit 1 = stop here, fix types first)
-5. Run test — if PASS → done
-6. If FAIL → revise hypothesis, increment cycle
-
-After 3 failures:
-
-**T3 Gate:** Surface all 3 hypotheses + evidence from each cycle. Ask for direction before continuing.
+Test ONE variable at a time. If it doesn't work: form a NEW hypothesis. Do not stack fixes.
 
 ---
 
-## Scope Fence
+## Phase 4 — Implementation (TDD Cycle, max 3)
 
-```
 <scope>
 EDIT: Only files identified in hypothesis.
 DO NOT: Refactor, fix adjacent issues, add features, change unrelated files.
 </scope>
+
+### Cycle Loop
+
+1. Write test that matches the Anti-regression from behavior contract
+2. Run test — MUST fail (if it passes immediately: wrong hypothesis — return to Phase 1)
+3. Apply fix — ONLY to hypothesis-identified files
+4. Run `dl-check --typecheck-only` — type errors BLOCK (exit 1 = stop, fix types first)
+5. Run test — if PASS → done
+6. If FAIL → revise hypothesis, increment cycle
+
+### After 3 Failures — Phase 4.5: Architectural Escalation
+
+<iron-law>
+After 3 failed fix attempts, STOP fixing and question the architecture.
+</iron-law>
+
+Signs of architectural problem:
+- Each fix reveals a new problem in a different place
+- Fixes require massive refactoring
+- Each fix creates new symptoms
+
+**T3 Gate:** Surface all 3 hypotheses + evidence from each cycle. Present:
+
 ```
+[Devline] 3 fix attempts exhausted. Pattern suggests architectural issue.
+
+Hypotheses tried:
+1. {hypothesis 1} — {result}
+2. {hypothesis 2} — {result}
+3. {hypothesis 3} — {result}
+
+Options:
+  [A] Escalate to /dl-feature (redesign the affected area)
+  [B] Provide new direction (I have an idea)
+  [C] Abort fix
+```
+
+---
+
+## Bail-to-Spec
+
+If at ANY point during investigation the fix reveals:
+- The bug is actually a missing feature
+- The fix requires changes to 5+ files across multiple domains
+- The root cause is a design flaw, not a code bug
+
+**T2 Inform:** "This bug is too complex for `/dl-fix`. Escalating to `/dl-feature`."
+
+Automatically transition to `/dl-feature` with the behavior contract as the PRD seed.
 
 ---
 
@@ -108,9 +185,15 @@ DO NOT: Refactor, fix adjacent issues, add features, change unrelated files.
 
 If stuck after 2 cycles:
 
-- **Root cause tracing:** Read the full call stack backward from the error. What hands off to what?
-- **Defense in depth:** Add validation/assertions at each layer boundary to isolate exactly where the invariant breaks
-- **Condition-based waiting:** If the bug is timing-related, replace `sleep N` with polling until a condition is true
+- **Root cause tracing:** Trace backward through the call chain. Where does the bad value originate? What called this with the bad value? Keep tracing up until the source is found. Fix at the source, not at the symptom.
+- **Defense in depth:** Add validation/assertions at each layer boundary to isolate exactly where the invariant breaks.
+- **Condition-based waiting:** If the bug is timing-related, replace `sleep N` with polling until a condition is true.
+
+---
+
+## After Fix
+
+T2 Inform: "Fix applied. Run `/dl-verify` to confirm before claiming done."
 
 ---
 
@@ -121,14 +204,25 @@ If stuck after 2 cycles:
 | "I'll write the test after" | Test first proves the fix. Skip it = no proof. |
 | "The fix is obvious" | State the hypothesis anyway. Review it in 3 minutes. |
 | "While I'm in here, also fix X" | Out of scope. Works. Leave it. |
-| "Test passes without fix" | Wrong hypothesis. Go back to Step 3. |
-| "3 cycles, close enough" | T3 Gate required. Surface evidence, ask for direction. |
+| "Test passes without fix" | Wrong hypothesis. Go back to Phase 1. |
+| "3 cycles, close enough" | Architectural escalation required. Surface evidence. |
+| "Just try changing X and see" | Form a hypothesis first. One variable at a time. |
+| "I don't fully understand but this might work" | STOP. Understand before fixing. |
+| "One more fix attempt" (when already tried 3) | Architectural escalation. No exceptions. |
+| "Quick fix for now, investigate later" | Root cause first. Always. |
+| "This is too complex for /dl-fix" | Good — bail to /dl-feature. That's the process. |
 
----
+## Red Flags — STOP
 
-## After Fix
+- Applying a fix without stating a hypothesis
+- Stacking multiple fixes without testing between them
+- "It's probably X" without evidence
+- Fixing where the error appears instead of where it originates
+- 3rd fix attempt without escalation
+- Modifying files not in the hypothesis scope
+- Skipping the behavior contract
 
-T2 Inform: "Fix applied. Run `/dl-verify` to confirm before claiming done."
+**Stop. Re-read the Iron Law. Follow the 4 phases.**
 
 ---
 
@@ -138,5 +232,7 @@ T2 Inform: "Fix applied. Run `/dl-verify` to confirm before claiming done."
 |------|---------|--------|
 | E01 | `.devline/` missing | HALT — "Run `/dl-init` first" |
 | E02 | dl-explain fails | T2 Inform: "Graph query failed — proceeding with limited context" |
-| E03 | Test passes immediately on first run | T2 Inform: "Wrong hypothesis — test passes without fix. Revise hypothesis." |
-| E04 | 3 cycles exhausted | T3 Gate — surface all hypotheses, ask for direction |
+| E03 | Test passes immediately on first run | T2 Inform: "Wrong hypothesis — test passes without fix. Return to Phase 1." |
+| E04 | 3 cycles exhausted | T3 Gate — architectural escalation (Phase 4.5) |
+| E05 | Bug is actually a missing feature | T2 Inform — bail to /dl-feature |
+| E06 | Fix requires 5+ files across domains | T2 Inform — bail to /dl-feature |
