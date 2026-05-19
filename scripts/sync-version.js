@@ -12,9 +12,21 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, '..');
 
-const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-const version = pkg.version;
+let pkg;
+try {
+  pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+} catch (err) {
+  console.error(`Error reading package.json: ${err.message}`);
+  process.exit(1);
+}
 
+const version = pkg.version;
+if (!version) {
+  console.error('Error: package.json is missing a valid "version" field.');
+  process.exit(1);
+}
+
+// All static JSON files that must stay in sync with the root package.json version.
 const targets = [
   '.claude-plugin/plugin.json',
   '.cursor-plugin/plugin.json',
@@ -33,3 +45,5 @@ for (const rel of targets) {
     process.exit(1);
   }
 }
+
+console.log(`Synced ${targets.length} files to ${version}`);
