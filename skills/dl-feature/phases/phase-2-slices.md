@@ -24,7 +24,21 @@ A vertical slice is thin, user-visible functionality cutting through ALL require
 2. Map each criterion to a user-visible slice (usually 1 criterion = 1 slice)
 3. Check: can complex criteria be split into smaller slices? (e.g., "create comment" before "edit comment")
 4. Define dependencies: which slices need other slices to be complete first?
-5. **Quick mode check (do this BEFORE creating any files):** If QUICK_MODE=true and analysis reveals >3 slices are genuinely needed, warn the user NOW: "This feature may require more than 3 slices — quick mode auto-generates 1-3. Continue with quick mode (auto-slim to 3 most important) or switch to full mode?" Wait for answer before proceeding.
+5. **Quick mode check (do this BEFORE creating any files):** If QUICK_MODE=true and analysis reveals >3 slices are genuinely needed, warn the user:
+
+   Present a `dl:choice` gate:
+
+   ````dl:choice
+   question: This feature needs more than 3 slices. Quick mode auto-slims to 3 most important.
+   options:
+     - label: Continue quick mode
+       description: Auto-generate the 3 most important slices and proceed
+     - label: Switch to full mode
+       description: Decompose all slices properly (takes longer but is more complete)
+   default: Continue quick mode
+   ````
+
+   Wait for selection before proceeding.
 
 ### Slice Sizing Checklist
 
