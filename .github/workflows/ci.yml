@@ -11,16 +11,16 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
-          node-version: '18'
+          node-version: '22'
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
       - name: Run Node tests
         run: node --test tests/installer/*.test.mjs
-      - uses: bats-core/bats-action@2.0.0
+      - uses: bats-core/bats-action@4.0.0
       - name: Run bats tests
         # tests/*.bats only — archived tests in subdirectories are excluded intentionally
         run: bats tests/*.bats

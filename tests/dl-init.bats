@@ -15,7 +15,7 @@ setup() {
   export REPO
   REPO="$(mktemp -d)"
   cp -r "$BATS_TEST_DIRNAME/fixtures/sample-repo/." "$REPO/"
-  (cd "$REPO" && git init -b main && git add . && git commit -m "initial" --quiet)
+  (cd "$REPO" && git init -b main && git config user.email "t@t.com" && git config user.name "T" && git add . && git commit -m "initial" --quiet)
   export DF_INIT="$BATS_TEST_DIRNAME/../bin/dl-init"
   export PATH="$BATS_TEST_DIRNAME/../bin:$PATH"
   export DEVLINE_MCP_MOCK=1
