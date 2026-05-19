@@ -46,43 +46,38 @@ bin/
 ## Prerequisites
 
 - macOS or Linux (Windows via WSL2)
+- Node.js ≥ 18
 - `git` ≥ 2.20
 - `jq` ≥ 1.6
-- `node` ≥ 18 (for codebase-memory-mcp)
 
-> **codebase-memory-mcp** is the knowledge graph engine. Run `dl-install --mcp` to install and configure it.
+> **codebase-memory-mcp** is the knowledge graph engine. Run `dl-install --mcp` after install to configure it.
 
 ---
 
 ## Installation
 
-### One command
-
 ```bash
-git clone https://github.com/MrInvisib1e/devline.git ~/.devline
-~/.devline/bin/dl-install
-~/.devline/bin/dl-install --mcp
+npm install -g @reydo/devline
 ```
 
-`dl-install` handles everything automatically:
-- Adds `~/.devline/bin` to your PATH (in `~/.zshrc` / `~/.bashrc`)
-- Registers Devline as a plugin in Claude Code, OpenCode, Gemini CLI, Cursor
-- Updates `~/.claude/CLAUDE.md` with skill paths
-- Idempotent — safe to re-run after updates
+All `dl-*` commands are on your PATH immediately after install.
 
 `dl-install --mcp` installs and configures `codebase-memory-mcp`:
 - Installs via npm globally
 - Registers the MCP server in your agent's config (Claude Code, OpenCode)
 
-**After install:** restart your terminal, then in any git repo type `/dl-init`.
+**After install:** in any git repo, start a conversation and type `/dl-init`.
 
-**Flags:**
+**Update to latest version:**
 ```bash
-dl-install --dry-run                    # preview changes, write nothing
-dl-install --platform claude            # Claude Code only
-dl-install --platform opencode          # OpenCode only
-dl-install --mcp                        # install + configure codebase-memory-mcp only
-dl-install --install-dir /path/to/repo  # if installed somewhere other than ~/.devline
+npm update -g @reydo/devline
+```
+
+**Flags for `dl-install --mcp`:**
+```bash
+dl-install --mcp --dry-run              # preview changes, write nothing
+dl-install --mcp --platform claude      # Claude Code only
+dl-install --mcp --platform opencode    # OpenCode only
 ```
 
 ---
@@ -91,7 +86,7 @@ dl-install --install-dir /path/to/repo  # if installed somewhere other than ~/.d
 
 #### Claude Code
 
-`dl-install` creates a local plugin registration that:
+After install, Devline registers as a plugin automatically:
 - Runs `hooks/session-start` at the beginning of every session
 - Injects `skills/using-devline/SKILL.md` into context (announces Devline + skill table)
 - Skills are loaded on demand — type `/dl-init`, `/dl-feature`, `/dl-fix`, etc.
@@ -105,10 +100,10 @@ dl-explain --rank   # should print ranked nodes (run inside a git repo after /dl
 
 #### OpenCode
 
-`dl-install` adds the local path to `opencode.json` automatically. Or manually:
+Add to your `opencode.json`:
 ```json
 {
-  "plugin": ["devline@git+https://github.com/MrInvisib1e/devline.git"]
+  "plugin": ["@reydo/devline"]
 }
 ```
 
@@ -117,7 +112,7 @@ dl-explain --rank   # should print ranked nodes (run inside a git repo after /dl
 #### Gemini CLI
 
 ```bash
-gemini extensions install https://github.com/MrInvisib1e/devline
+gemini extensions install @reydo/devline
 ```
 
 ---
@@ -136,8 +131,8 @@ See [`.codex/INSTALL.md`](.codex/INSTALL.md) for manual setup.
 
 ## Quick Start
 
-1. Install Devline using your platform's method above
-2. Run `dl-install --mcp` to install codebase-memory-mcp
+1. `npm install -g @reydo/devline`
+2. Run `dl-install --mcp` to install and configure codebase-memory-mcp
 3. In any git repository: start a conversation and type `/dl-init`
 4. Devline indexes your codebase via codebase-memory-mcp, writes `memory.md`
 5. A post-commit hook and post-checkout hook keep memory current automatically
