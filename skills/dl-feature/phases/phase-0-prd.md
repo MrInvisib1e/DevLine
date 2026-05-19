@@ -46,7 +46,7 @@ Ask these questions **ONE AT A TIME**:
 2. **Users & Personas:** "Who will use this? Describe 1-3 user types and their primary goals."
 3. **Core User Stories:** "What are the 3-5 most important things a user should be able to do?"
 4. **Stack Selection:** "Do you have a preferred tech stack? (runtime, framework, database, hosting) — or should I recommend one?"
-   - If user wants recommendation: propose 2-3 stack options with trade-offs. Wait for selection.
+   - If user wants recommendation: propose 2-3 stack options with trade-offs using a `dl:choice` block. Wait for selection.
 5. **Architecture Blueprint:** "Based on the stack, here's the proposed architecture:" — present:
    - Application type (monolith / API+SPA / serverless / etc.)
    - Data model sketch (key entities and relationships)
