@@ -159,11 +159,17 @@ Hypotheses tried:
 1. {hypothesis 1} — {result}
 2. {hypothesis 2} — {result}
 3. {hypothesis 3} — {result}
+```
 
-Options:
-  [A] Escalate to /dl-feature (redesign the affected area)
-  [B] Provide new direction (I have an idea)
-  [C] Abort fix
+```dl:choice
+question: 3 fix attempts exhausted. How do you want to proceed?
+options:
+  - label: Escalate to /dl-feature
+    description: Redesign the affected area — treat this as a new feature
+  - label: Provide new direction
+    description: You have a hypothesis or idea to try
+  - label: Abort fix
+    description: Stop here and leave the code as-is
 ```
 
 ---
