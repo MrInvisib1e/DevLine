@@ -1,5 +1,5 @@
 {
-  "name": "@devline/cli",
+  "name": "@reydo/devline",
   "version": "0.6.0",
   "description": "Skill library that makes AI coding assistants behave like senior engineers",
   "type": "module",
@@ -30,7 +30,8 @@
     ".codex/"
   ],
   "scripts": {
-    "test": "node --test tests/installer/*.test.mjs"
+    "test": "node --test tests/installer/*.test.mjs",
+    "version": "node scripts/sync-version.js && git add .claude-plugin/plugin.json .cursor-plugin/plugin.json gemini-extension.json"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -40,9 +41,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/<org>/devline.git"
+    "url": "https://github.com/MrInvisib1e/devline.git"
   },
-  "homepage": "https://github.com/<org>/devline",
+  "homepage": "https://github.com/MrInvisib1e/devline",
   "license": "MIT",
   "devline": {
     "skills_dir": "./skills",

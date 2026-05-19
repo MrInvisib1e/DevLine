@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * dl-update — Update @devline/cli to the latest version
+ * dl-update — Update @reydo/devline to the latest version
  *
  * Usage: dl-update [--dry-run] [--check]
  */
@@ -30,7 +30,7 @@ async function main() {
   // Get latest published version
   let latestVersion;
   try {
-    latestVersion = execFileSync('npm', ['view', '@devline/cli', 'version'], { encoding: 'utf8' }).trim();
+    latestVersion = execFileSync('npm', ['view', '@reydo/devline', 'version'], { encoding: 'utf8' }).trim();
   } catch (err) {
     log.error('Could not fetch latest version from npm:', err.message);
     log.warn('Check your network connection and that npm is configured correctly.');
@@ -41,7 +41,7 @@ async function main() {
 
   if (checkOnly) {
     if (currentVersion === latestVersion) {
-      log.info('@devline/cli is up to date.');
+      log.info('@reydo/devline is up to date.');
     } else {
       log.info(`Update available: ${currentVersion} → ${latestVersion}`);
       log.info('Run: dl-update');
@@ -50,24 +50,24 @@ async function main() {
   }
 
   if (currentVersion === latestVersion) {
-    log.info('@devline/cli is already up to date.');
+    log.info('@reydo/devline is already up to date.');
     return;
   }
 
-  log.info(`Updating @devline/cli: ${currentVersion} → ${latestVersion}`);
+  log.info(`Updating @reydo/devline: ${currentVersion} → ${latestVersion}`);
 
   if (dryRun) {
-    log.info('Would run: npm install -g @devline/cli@latest');
+    log.info('Would run: npm install -g @reydo/devline@latest');
     log.info('Would re-run: dl-install --upgrade');
     return;
   }
 
   // Install latest
   try {
-    execFileSync('npm', ['install', '-g', '@devline/cli@latest'], { stdio: 'inherit' });
+    execFileSync('npm', ['install', '-g', '@reydo/devline@latest'], { stdio: 'inherit' });
   } catch (err) {
     log.error('npm install failed:', err.message);
-    log.warn('Try: sudo npm install -g @devline/cli@latest');
+    log.warn('Try: sudo npm install -g @reydo/devline@latest');
     log.warn('Or if using nvm: ensure your nvm node is active.');
     process.exit(1);
   }
@@ -79,7 +79,7 @@ async function main() {
     log.warn('Could not auto-run dl-install --upgrade. Run it manually to refresh platform configuration.');
   }
 
-  log.action(`Updated @devline/cli: ${currentVersion} → ${latestVersion}`);
+  log.action(`Updated @reydo/devline: ${currentVersion} → ${latestVersion}`);
 }
 
 main().catch(err => {

@@ -4,6 +4,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { installClaude } from '../../lib/installer/claude.mjs';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const pkg = require('../../package.json');
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'devline-claude-'));
 
@@ -14,7 +17,7 @@ function makeCtx(overrides = {}) {
   return {
     rootDir: '/fake/devline/root',
     dryRun: false,
-    version: '0.5.0',
+    version: pkg.version,
     skillsDir: '/fake/devline/root/skills',
     binDir: '/fake/devline/root/bin',
     homeDir: home,
