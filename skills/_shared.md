@@ -27,6 +27,8 @@ Use when: irreversible, high-stakes, genuinely ambiguous, or the action permanen
 changes something the user owns (memory write, merge, commit).
 Format: present the decision clearly, offer concrete options or Y/N. Always wait.
 
+> **T3 gates use the Devline Interaction Protocol.** When presenting choices, follow `skills/_interaction-protocol.md`: use `mcp_Question` if available, otherwise render `[A] [B] [C]` text format.
+
 ## Classification Table
 
 | Reversible? | Judgment required? | High-stakes? | Tier |
