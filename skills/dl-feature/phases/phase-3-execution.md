@@ -187,7 +187,20 @@ Slice N ("<name>") is stuck after 3 cycles. Its dependents cannot proceed:
 Other slices not dependent on Slice N will continue.
 ```
 
-Ask: "Would you like to: (1) manually implement slice N and mark it done, (2) remove it and its dependents from scope, or (3) abort?"
+Present a `dl:choice` gate:
+
+```dl:choice
+question: Slice {N} ("{name}") is stuck after 3 cycles. Its dependents cannot proceed. What do you want to do?
+options:
+  - label: Implement manually
+    description: You implement slice {N} yourself and mark it done so dependents can proceed
+  - label: Remove from scope
+    description: Drop slice {N} and all its dependents from this feature
+  - label: Abort
+    description: Stop the feature run entirely
+```
+
+Wait for selection.
 
 ---
 
