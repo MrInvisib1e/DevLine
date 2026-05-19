@@ -30,8 +30,21 @@ Run all verification commands from `config.json`:
 | test_cmd fails | → route back to Phase 3 with test failure output |
 | build_cmd fails | → route back to Phase 3 with build error |
 | lint_cmd fails | → T2 Inform, proceed (lint is non-blocking) |
-| 3rd failure routed back | → T3 Gate: show failures, ask for direction |
+| 3rd failure routed back | → T3 Gate: show all failures, present `dl:choice` for direction |
 | DEFAULT | → T2 Inform failures, attempt 1 more sync |
+
+When the 3rd failure row is hit, present this gate:
+
+```dl:choice
+question: Verification failed 3 times. How do you want to proceed?
+options:
+  - label: Route back to Phase 3
+    description: Send failures to implementation agents to fix
+  - label: Skip failing checks
+    description: Mark checks as acceptable and proceed with current state
+  - label: Abort feature
+    description: Stop the feature run and leave branch as-is
+```
 
 CHECKPOINT: "[Devline] Verification complete: all commands passed"
 
@@ -60,21 +73,23 @@ Determine base branch:
 BASE=$(git merge-base HEAD main 2>/dev/null && echo main || echo master)
 ```
 
-Present:
+Present a `dl:choice` gate:
+
+```dl:choice
+question: Feature complete. All tests pass. How do you want to integrate this work?
+options:
+  - label: Merge now
+    description: git merge --no-ff into {base} immediately
+  - label: Open a PR
+    description: Push branch and create PR via gh pr create
+  - label: Keep branch
+    description: Stay on current branch for later review or merge
+  - label: Discard
+    description: Delete the feature branch (requires confirmation)
+default: Merge now
 ```
-[Devline] Feature complete. All tests pass. Memory synced.
 
-How do you want to integrate this work?
-
-  [A] Merge into <base> now (git merge --no-ff)
-  [B] Open a PR (creates PR via gh pr create)
-  [C] Keep branch for review (stay on current branch)
-  [D] Discard this work (requires confirmation)
-
-What's your choice?
-```
-
-Wait for response. Execute the chosen option.
+Wait for response. Then execute the chosen option per the Completion Option Table below.
 
 ### Completion Option Table
 
