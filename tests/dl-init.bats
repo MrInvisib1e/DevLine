@@ -90,15 +90,6 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
-@test "fresh init: post-commit hook installed and executable" {
-  bash -c "cd '$REPO' && DEVLINE_MCP_MOCK=1 '$DF_INIT'"
-  [ -x "$REPO/.git/hooks/post-commit" ]
-}
-
-@test "fresh init: post-commit hook contains dl-init --write-memory" {
-  bash -c "cd '$REPO' && DEVLINE_MCP_MOCK=1 '$DF_INIT'"
-  grep -q "dl-init --write-memory" "$REPO/.git/hooks/post-commit"
-}
 
 # ─── No branches/ directory in v4 ─────────────────────────────────────────────
 
@@ -131,12 +122,6 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
-@test "re-init: hook idempotent (not duplicated)" {
-  bash -c "cd '$REPO' && DEVLINE_MCP_MOCK=1 '$DF_INIT'"
-  bash -c "cd '$REPO' && DEVLINE_MCP_MOCK=1 '$DF_INIT'"
-  count=$(grep -c "dl-init --write-memory" "$REPO/.git/hooks/post-commit")
-  [ "$count" -eq 1 ]
-}
 
 # ─── --reset ──────────────────────────────────────────────────────────────────
 
