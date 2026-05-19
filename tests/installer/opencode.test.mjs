@@ -25,7 +25,7 @@ test('installOpenCode does not duplicate entry', async () => {
   const dir = tmp();
   try {
     const configFile = join(dir, 'opencode.json');
-    writeFileSync(configFile, JSON.stringify({ plugins: ['@devline/cli'] }));
+    writeFileSync(configFile, JSON.stringify({ plugins: ['@reydo/devline'] }));
     await installOpenCode({ dryRun: false, configFile, log: { info: ()=>{}, action: ()=>{}, warn: ()=>{} } });
     const data = readJsonFile(configFile);
     assert.equal(data.plugins.filter(p => p.includes('devline')).length, 1);
