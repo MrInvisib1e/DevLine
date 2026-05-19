@@ -5,11 +5,16 @@
 
 set -euo pipefail
 
-_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEVLINE_VERSION=$(node -p "require('$_SCRIPT_DIR/../package.json').version" 2>/dev/null || echo "unknown")
-
 if [[ "${1:-}" == "--version" || "${1:-}" == "-v" ]]; then
-  echo "Devline dl-init $DEVLINE_VERSION"
+  _SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+  while [ -L "$_SCRIPT_SOURCE" ]; do
+    _SCRIPT_DIR_INNER="$(cd "$(dirname "$_SCRIPT_SOURCE")" && pwd)"
+    _SCRIPT_SOURCE="$(readlink "$_SCRIPT_SOURCE")"
+    [[ "$_SCRIPT_SOURCE" != /* ]] && _SCRIPT_SOURCE="$_SCRIPT_DIR_INNER/$_SCRIPT_SOURCE"
+  done
+  _SCRIPT_DIR_INNER="$(cd "$(dirname "$_SCRIPT_SOURCE")" && pwd)"
+  _VER=$(node -p "require(\"$_SCRIPT_DIR_INNER/../package.json\").version" 2>/dev/null || echo "unknown")
+  echo "Devline dl-init $_VER"
   exit 0
 fi
 

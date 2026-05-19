@@ -3,9 +3,6 @@ set -euo pipefail
 
 # ─── constants ────────────────────────────────────────────────────────────────
 
-_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEVLINE_VERSION=$(node -p "require('$_SCRIPT_DIR/../package.json').version" 2>/dev/null || echo "unknown")
-
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
 err() { echo "[Devline] $*" >&2; }
@@ -62,7 +59,18 @@ write_slice_result() {
 # ─── commands ─────────────────────────────────────────────────────────────────
 
 cmd_version() {
-  echo "Devline $DEVLINE_VERSION"
+  local _SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+  while [ -L "$_SCRIPT_SOURCE" ]; do
+    local _SCRIPT_DIR_INNER
+    _SCRIPT_DIR_INNER="$(cd "$(dirname "$_SCRIPT_SOURCE")" && pwd)"
+    _SCRIPT_SOURCE="$(readlink "$_SCRIPT_SOURCE")"
+    [[ "$_SCRIPT_SOURCE" != /* ]] && _SCRIPT_SOURCE="$_SCRIPT_DIR_INNER/$_SCRIPT_SOURCE"
+  done
+  local _SCRIPT_DIR_INNER
+  _SCRIPT_DIR_INNER="$(cd "$(dirname "$_SCRIPT_SOURCE")" && pwd)"
+  local _VER
+  _VER=$(node -p "require(\"$_SCRIPT_DIR_INNER/../package.json\").version" 2>/dev/null || echo "unknown")
+  echo "Devline $_VER"
   exit 0
 }
 
