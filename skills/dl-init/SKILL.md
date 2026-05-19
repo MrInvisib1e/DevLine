@@ -32,17 +32,29 @@ This calls `index_repository` via codebase-memory-mcp, then `get_architecture`, 
 
 ### Step 3 — Final summary (T3 Gate)
 
-Present:
+Present the summary:
 ```
 Devline initialized at .devline/
 Stack: {runtime} / {frontend}
 Project: {service}
 Memory: {N} nodes indexed
-
-[A] Continue  [B] Show memory.md  [C] Abort
 ```
 
-Wait for user input before proceeding.
+Then present a `dl:choice` gate:
+
+```dl:choice
+question: How do you want to proceed?
+options:
+  - label: Continue
+    description: Install git hooks and finish setup
+  - label: Show memory
+    description: Display the generated memory.md before continuing
+  - label: Abort
+    description: Cancel initialization, leave .devline/ in place for inspection
+default: Continue
+```
+
+Wait for user selection. If "Continue": proceed to hook installation. If "Show memory": display `.devline/memory.md`, then re-present the gate (loop back). If "Abort": exit with T2 Inform "Initialization aborted. .devline/ left in place."
 
 ### Step 4 — Install hooks (T1 Silent)
 
