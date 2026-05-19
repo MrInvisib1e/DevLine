@@ -3,7 +3,8 @@ set -euo pipefail
 
 # ─── constants ────────────────────────────────────────────────────────────────
 
-DEVLINE_VERSION="0.5.0"
+_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DEVLINE_VERSION=$(node -p "require('$_SCRIPT_DIR/../package.json').version" 2>/dev/null || echo "unknown")
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
