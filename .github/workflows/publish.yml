@@ -36,8 +36,5 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
-      - name: Upgrade npm
-        run: npm install -g npm@latest
       - name: Publish
-        run: npm publish --provenance --access public
+        run: npx --yes npm@11 publish --provenance --access public
