@@ -58,6 +58,18 @@ teardown() {
   [ -n "$output" ]
 }
 
+@test "dl-explain <query> prints node names from results wrapper format" {
+  run bash -c "cd '$REPO' && DEVLINE_MCP_MOCK=1 '$DF_EXPLAIN' CommentService"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "MockNode" ]]
+}
+
+@test "dl-explain --rank prints node names from results wrapper format" {
+  run bash -c "cd '$REPO' && DEVLINE_MCP_MOCK=1 '$DF_EXPLAIN' --rank"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "MockNode" ]]
+}
+
 # ─── --rank ───────────────────────────────────────────────────────────────────
 
 @test "dl-explain --rank exits 0" {

@@ -53,10 +53,13 @@ if [ ! -d "$DEVLINE_DIR" ] && [ "${DEVLINE_MCP_MOCK:-}" != "1" ]; then
   exit 0
 fi
 
-PROJECT_ARG=""
-if [ -n "$PROJECT" ]; then
-  PROJECT_ARG="\"project\":\"$PROJECT\","
+# Auto-detect project name from git root if not specified via --project
+# MCP project names are derived by stripping the leading / and replacing / with -
+if [ -z "$PROJECT" ]; then
+  PROJECT=$(echo "$GIT_ROOT" | sed 's|^/||; s|/|-|g')
 fi
+
+PROJECT_ARG="\"project\":\"$PROJECT\","
 
 check_mcp() {
   # DEVLINE_MCP_MOCK=1 skips real MCP calls (for tests)
@@ -71,7 +74,7 @@ check_mcp() {
 mock_mcp() {
   # Returns minimal valid responses for each query type
   case "${1:-}" in
-    search_graph) echo "[]" ;;
+    search_graph) echo '{"total":1,"results":[{"name":"MockNode","label":"Function","file_path":"mock.js","in_degree":0,"out_degree":0,"degree":1}],"has_more":false}' ;;
     trace_call_path) echo "{\"paths\":[]}" ;;
     detect_changes) echo "{\"affected_symbols\":[]}" ;;
     query_graph) echo "{\"rows\":[]}" ;;
@@ -98,7 +101,8 @@ case "$MODE" in
       "{${PROJECT_ARG}\"limit\":$BUDGET,\"min_degree\":1}" \
       | python3 -c "
 import json,sys
-nodes=json.load(sys.stdin)
+data=json.load(sys.stdin)
+nodes=data.get('results',data) if isinstance(data,dict) else data
 for n in nodes:
   print(f\"{n.get('name','?')} [{n.get('label','?')}] — {n.get('file','')} (degree: {n.get('degree',0)})\")
 "
@@ -119,7 +123,8 @@ for n in nodes:
     mcp_call search_graph \
       "{${PROJECT_ARG}\"file_pattern\":\"$FILE\",\"limit\":20}" | python3 -c "
 import json,sys
-nodes=json.load(sys.stdin)
+data=json.load(sys.stdin)
+nodes=data.get('results',data) if isinstance(data,dict) else data
 for n in nodes:
   print(f\"{n.get('name','?')} [{n.get('label','?')}] — {n.get('file','')}\")"
     echo "--- Outbound ---"
@@ -181,7 +186,8 @@ for r in rows:
     mcp_call search_graph \
       "{${PROJECT_ARG}\"name_pattern\":\"$QUERY\",\"limit\":20}" | python3 -c "
 import json,sys
-nodes=json.load(sys.stdin)
+data=json.load(sys.stdin)
+nodes=data.get('results',data) if isinstance(data,dict) else data
 for n in nodes:
   print(f\"  {n.get('name','?')} [{n.get('label','?')}] — {n.get('file','')}\")"
     echo ""

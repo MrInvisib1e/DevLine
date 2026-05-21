@@ -26,6 +26,16 @@ test('generateSlashCommands file contains command invocation', async () => {
   rmSync(dir, { recursive: true });
 });
 
+test('generateSlashCommands includes description frontmatter', async () => {
+  const dir = tmp();
+  await generateSlashCommands({ commandsDir: dir, dryRun: false });
+  const content = readFileSync(join(dir, 'dl-init.md'), 'utf8');
+  assert.ok(content.startsWith('---\n'), 'File should start with YAML frontmatter');
+  assert.ok(content.includes('description:'), 'File should contain description field');
+  assert.ok(content.includes('Initialize devline'), 'Description should contain meaningful text');
+  rmSync(dir, { recursive: true });
+});
+
 test('generateSlashCommands respects dryRun', async () => {
   const dir = tmp();
   await generateSlashCommands({ commandsDir: dir, dryRun: true });
