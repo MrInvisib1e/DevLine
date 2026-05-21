@@ -50,3 +50,26 @@ test('installClaude respects dryRun', async () => {
   assert.ok(!existsSync(pluginsFile), 'dryRun should not create files');
   rmSync(ctx.homeDir, { recursive: true });
 });
+
+test('installClaude writes allowedTools to settings.json', async () => {
+  const ctx = makeCtx();
+  await installClaude(ctx);
+  const settingsPath = join(ctx.homeDir, '.claude', 'settings.json');
+  assert.ok(existsSync(settingsPath), 'settings.json should exist');
+  const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  assert.ok(Array.isArray(settings.allowedTools), 'allowedTools should be an array');
+  assert.ok(settings.allowedTools.some(e => e.startsWith('Read(')), 'should include Read entry');
+  assert.ok(settings.allowedTools.some(e => e.startsWith('Bash(dl-')), 'should include Bash entries');
+  rmSync(ctx.homeDir, { recursive: true });
+});
+
+test('installClaude merges allowedTools without duplicating', async () => {
+  const ctx = makeCtx();
+  const settingsPath = join(ctx.homeDir, '.claude', 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify({ allowedTools: ['Bash(dl-init*)'] }), 'utf8');
+  await installClaude(ctx);
+  const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  const count = settings.allowedTools.filter(e => e === 'Bash(dl-init*)').length;
+  assert.equal(count, 1, 'should not duplicate existing entries');
+  rmSync(ctx.homeDir, { recursive: true });
+});
