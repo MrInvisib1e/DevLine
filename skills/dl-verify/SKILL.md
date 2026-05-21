@@ -4,17 +4,32 @@ Run verification commands before claiming any work is done. Evidence before clai
 
 **Invoked as:** `/dl-verify` (call before any completion claim)
 
----
-
-## Iron Law
-
-```
+<iron-law>
+Load `skills/_shared.md` before proceeding. T1/T2/T3 tiers assumed throughout.
 NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.
-```
+</iron-law>
 
 ---
 
 ## Gates: 0 (autonomous; failures → T2 Inform with specific output, then continue)
+
+---
+
+## Step 0: PRD Acceptance Criteria (ALWAYS FIRST)
+
+Before running any technical checks, verify the feature actually does what was agreed.
+
+Read the PRD from `plan.md`. For each acceptance criterion:
+
+| Criterion | Met? | Evidence |
+|-----------|------|----------|
+| [criterion from PRD] | yes/no | [test name / observable behavior / screenshot] |
+
+If any criterion is unmet: HALT. Print exactly: "Verification failed: '[criterion]' is not met. Do not mark this feature complete. Fix the missing criterion first."
+
+— because tests and type checks verify technical correctness, not whether the feature does what was agreed. A feature can pass all tests and fail all acceptance criteria.
+
+CHECKPOINT: "[Devline] dl-verify Step 0 done: PRD acceptance criteria checked"
 
 ---
 

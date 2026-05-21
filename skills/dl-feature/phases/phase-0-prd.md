@@ -2,14 +2,21 @@
 
 Goal: turn a feature description into a structured PRD that everyone agrees on before any code is planned.
 
+<iron-law>
+Load `skills/_shared.md` before proceeding. T1/T2/T3 tiers and SIF rules are defined there and assumed throughout this phase.
+DO NOT proceed to Phase 1 until the user explicitly approves the PRD.
+</iron-law>
+
 ### Mode Detection (T1 Silent)
 
 | Condition | Mode |
 |-----------|------|
 | `.devline/config.json` exists AND has `stack.runtime` set | Existing project |
-| `.devline/config.json` missing OR `stack.runtime` is null | Greenfield project |
+| `.devline/config.json` missing OR `stack.runtime` is null | Confirm with user: "This looks like a greenfield project — is that right?" Wait for answer before proceeding. |
 | User says "from scratch", "new project", "build a..." with no existing code | Greenfield project |
 | DEFAULT | Existing project |
+
+— because an existing project with an incomplete config would be silently misclassified as Greenfield, sending the user through a much longer question flow.
 
 ---
 
@@ -42,6 +49,18 @@ Ask only:
 
 Generate the PRD from the description + these 2 answers. Present for approval.
 
+**Quick-mode inference rules (T2 Inform — label all inferred fields):**
+
+| Field | Inference rule |
+|-------|---------------|
+| Goal | Derive from feature description + actor answer |
+| Scope | Assume the minimal set of changes implied by the description |
+| Out of scope | Assume: bulk operations, admin tooling, mobile, notifications, i18n |
+| Edge cases | Assume: empty state, validation errors, permission denied |
+| DEFAULT | State assumption explicitly in the PRD |
+
+Print: "[Devline] Quick-mode PRD: inferred [Goal / Scope / Out of scope / Edge cases]. Review and correct if anything is wrong." — because the prior instruction gave no guidance on what to infer, producing inconsistent PRDs across sessions.
+
 ---
 
 ### Greenfield Project Mode
@@ -55,20 +74,21 @@ Ask these questions **ONE AT A TIME**:
 3. **Core User Stories:** "What are the 3-5 most important things a user should be able to do?"
 4. **Stack Selection:** "Do you have a preferred tech stack? (runtime, framework, database, hosting) — or should I recommend one?"
    - If user wants recommendation: propose 2-3 stack options with trade-offs using a `dl:choice` block. Wait for selection.
-5. **Architecture Blueprint:** "Based on the stack, here's the proposed architecture:" — present:
+5. **Constraints (BEFORE architecture):** "Any important constraints? (auth, compliance, rate limits, data size, budget, team expertise)"
+   — because a user may approve an architecture that violates constraints they haven't yet been asked about; constraints must come first.
+6. **Architecture Blueprint:** "Based on the stack and constraints, here's the proposed architecture:" — present:
    - Application type (monolith / API+SPA / serverless / etc.)
    - Data model sketch (key entities and relationships)
    - API style (REST / GraphQL / RPC)
    - Deployment model (container / serverless / static + API)
    - Wait for approval.
-6. **MVP Scope:** "What's in v1 vs what's deferred?" — present a MoSCoW table:
+7. **MVP Scope:** "What's in v1 vs what's deferred?" — present a MoSCoW table:
    - Must have (v1)
    - Should have (v1 if time)
    - Could have (v2)
    - Won't have (explicitly out)
    - Wait for approval.
-7. **Success criteria:** "How will we know v1 is done? List 3-5 acceptance criteria."
-8. **Edge cases:** "Any important constraints? (auth, rate limits, data size, compliance)"
+8. **Success criteria:** "How will we know v1 is done? List 3-5 acceptance criteria."
 
 After all answers, present the Greenfield PRD (see Greenfield PRD Template below).
 
@@ -88,6 +108,7 @@ After all answers, present the Greenfield PRD (see Greenfield PRD Template below
 - <criterion 2>
 ...
 **Edge cases:** <edge cases>
+**Approved:** [YYYY-MM-DD HH:MM — filled in at approval time]
 ```
 
 ### Greenfield PRD Template
@@ -138,7 +159,21 @@ After all answers, present the Greenfield PRD (see Greenfield PRD Template below
 
 ### Constraints & Edge Cases
 <constraints>
+
+**Approved:** [YYYY-MM-DD HH:MM — filled in at approval time]
 ```
+
+---
+
+### Scope Contradiction Check (T1 Silent — before presenting PRD)
+
+Before presenting the PRD, verify: does any item in "Out of scope" contradict an item in "Scope"?
+
+| Check | Example conflict | Action |
+|-------|-----------------|--------|
+| In-scope item requires out-of-scope item to work | "Edit user profile" in scope, "auth" out of scope | T2 Inform: "Possible scope conflict: [X requires Y]. Clarifying..." — resolve inline |
+| Out-of-scope item is a dependency of a success criterion | "User sees list" criterion, but "list API" out of scope | T2 Inform: same pattern |
+| No conflicts | — | Proceed silently |
 
 ---
 
@@ -149,3 +184,5 @@ After all answers, present the Greenfield PRD (see Greenfield PRD Template below
 **DO NOT proceed to Phase 1 until the user explicitly approves the PRD.**
 
 If the user requests changes: revise the PRD and re-present it. Repeat until approved.
+
+**On approval:** Fill in the `Approved:` timestamp in the PRD and write it to `plan.md`. — because on resume, there is no way to know if the PRD is still current without a timestamp.

@@ -2,6 +2,13 @@
 
 Goal: decompose the feature into vertical slices, define their dependencies, and get user approval before writing any code.
 
+<iron-law>
+Load `skills/_shared.md` before proceeding. T1/T2/T3 tiers assumed throughout.
+NO CODE WITHOUT APPROVED SLICES.
+DO NOT create plan files or branch until user approves the slice plan at the Stopping Gate below.
+— because creating files before approval wastes work if the user requests significant structural changes.
+</iron-law>
+
 ### What is a Vertical Slice?
 
 A vertical slice is thin, user-visible functionality cutting through ALL required layers:
@@ -18,12 +25,21 @@ A vertical slice is thin, user-visible functionality cutting through ALL require
 
 **Litmus test:** Can you write a Playwright e2e test a non-developer could read? If not → not a slice.
 
+### Slice Atomicity Rule
+
+A slice is the smallest unit of work that produces a user-visible result, can be reviewed independently, and leaves the codebase in a working state when complete.
+
+**Sizing target:** 3–8 files, 3–10 steps, 100–300 lines of slice MD.
+If a slice exceeds these bounds: split it. — because oversized slices make parallel execution unsafe and review impractical.
+
 ### Slice Decomposition Process
 
 1. Re-read the PRD acceptance criteria
 2. Map each criterion to a user-visible slice (usually 1 criterion = 1 slice)
+   CHECKPOINT: "[Devline] Slice planning Step 2 done: criteria mapped to slices"
 3. Check: can complex criteria be split into smaller slices? (e.g., "create comment" before "edit comment")
 4. Define dependencies: which slices need other slices to be complete first?
+   CHECKPOINT: "[Devline] Slice planning Step 4 done: DAG defined"
 5. **Quick mode check (do this BEFORE creating any files):** If QUICK_MODE=true and analysis reveals >3 slices are genuinely needed, warn the user:
 
    Present a `dl:choice` gate:
@@ -82,6 +98,8 @@ Batch 2 (sequential): slice-3-delete-comment
 
 ### Create Plan Folder and Files
 
+> **Order:** The Stopping Gate (slice approval) comes FIRST. Create plan folder, files, symlink, and branch AFTER the user approves the slice plan at the gate below.
+
 1. Generate a slug from the feature name: `feature-<slug>` (lowercase, hyphens, no special chars)
 2. Create plan folder: `.devline/plans/YYYY-MM-DD-<slug>/`
 3. Write `plan.md` with:
@@ -108,6 +126,8 @@ ln -sfn "plans/YYYY-MM-DD-<slug>" ".devline/active"
 ```bash
 git checkout -b feature/<feature-slug>
 ```
+
+CHECKPOINT: "[Devline] Plan folder created: .devline/plans/YYYY-MM-DD-<slug>/ with N slice files"
 
 #### Slice JSON Schema
 

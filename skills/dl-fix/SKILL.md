@@ -11,6 +11,10 @@ Fix bugs using memory-aware, structured investigation. Max 3 cycles per phase.
 
 **Invoked as:** `/dl-fix <bug description>`
 
+<iron-law>
+Load `skills/_shared.md` before proceeding. It defines T1/T2/T3 tiers, SIF rules, and the Unified Status Model. All tier references in this file assume those definitions are in context.
+</iron-law>
+
 ---
 
 ## Iron Law
@@ -234,11 +238,11 @@ T2 Inform: "Fix applied. Run `/dl-verify` to confirm before claiming done."
 
 ## Error Reference
 
-| Code | Trigger | Action |
-|------|---------|--------|
-| E01 | `.devline/` missing | HALT — "Run `/dl-init` first" |
-| E02 | dl-explain fails | T2 Inform: "Graph query failed — proceeding with limited context" |
-| E03 | Test passes immediately on first run | T2 Inform: "Wrong hypothesis — test passes without fix. Return to Phase 1." |
-| E04 | 3 cycles exhausted | T3 Gate — architectural escalation (Phase 4.5) |
-| E05 | Bug is actually a missing feature | T2 Inform — bail to /dl-feature |
-| E06 | Fix requires 5+ files across domains | T2 Inform — bail to /dl-feature |
+| Code | What happened | Why | How to fix |
+|------|--------------|-----|------------|
+| E01 | `.devline/` directory is missing | `dl-init` has not been run in this project | HALT. Print exactly: "Run `/dl-init` first to initialize Devline." |
+| E02 | `dl-explain` exited with a non-zero code | Graph query failed — symbol not found or graph not built | T2 Inform: "[Devline] Graph query failed — proceeding with limited context." Continue with manual file inspection. |
+| E03 | Test passes on first run before any fix is applied | The hypothesis is wrong — the test does not actually cover the bug | T2 Inform: "[Devline] Wrong hypothesis — test passes without fix. Return to Phase 1 and form a new hypothesis." |
+| E04 | 3 fix cycles exhausted with no passing result | The issue is likely architectural, not a local code bug | T3 Gate — run architectural escalation (Phase 4.5). Present all 3 hypotheses + evidence. |
+| E05 | Fix investigation reveals a missing feature, not a bug | The expected behavior was never implemented | T2 Inform: "[Devline] This is a missing feature, not a bug. Escalating to `/dl-feature`." Transition with behavior contract as PRD seed. |
+| E06 | Fix requires changes to 5+ files across multiple domains | Root cause is a design flaw, not a local bug | T2 Inform: "[Devline] Fix scope exceeds `/dl-fix` boundary. Escalating to `/dl-feature`." Transition with behavior contract as PRD seed. |

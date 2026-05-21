@@ -4,6 +4,11 @@ Turn an idea or requirement into a fully formed implementation plan. Combines br
 
 **Invoked as:** `/dl-plan <task>`, `/dl-plan --brainstorm <idea>`, `/dl-plan --quick <task>`
 
+<iron-law>
+Load `skills/_shared.md` before proceeding. T1/T2/T3 tiers assumed throughout.
+DO NOT write code or take any implementation action until the plan is approved.
+</iron-law>
+
 ---
 
 ## Hard Gate
@@ -135,6 +140,23 @@ Rules for tasks:
 T3 Gate: Present plan summary. Wait for approval.
 
 After approval: T2 Inform — "Plan saved to `.devline/plans/{path}/plan.md`. Use `/dl-feature` to execute."
+
+---
+
+## Architectural Guidance
+
+Before proposing a plan, verify these questions are answered:
+
+| Question | Why it matters |
+|----------|---------------|
+| What is the smallest change that achieves the goal? | Over-engineering adds risk and review friction |
+| Which existing pattern in the codebase does this follow? | Consistency reduces review friction and onboarding cost |
+| What can break as a side effect? | Plan for rollback and blast radius |
+| Is this change reversible? | Prefer reversible changes; flag irreversible ones explicitly |
+| What does this NOT touch? | Explicit out-of-scope prevents scope creep during execution |
+| Where is the nearest working example? | Reference patterns produce more accurate plans than abstractions |
+
+CHECKPOINT: "[Devline] dl-plan architectural guidance checked before plan generation"
 
 ---
 

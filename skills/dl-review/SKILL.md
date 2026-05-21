@@ -4,6 +4,11 @@ Review diffs against project conventions stored in memory. Every finding cites a
 
 **Invoked as:** `/dl-review [--base <branch>] [--headless]`
 
+<iron-law>
+Load `skills/_shared.md` before proceeding. T1/T2/T3 tiers assumed throughout.
+Run checks in severity order: BLOCKING first. Do not proceed to lower-severity checks until all BLOCKING issues are resolved. — because continuing to review code with type errors wastes effort and obscures other findings.
+</iron-law>
+
 ---
 
 ## Gates: 0 (fully autonomous)
@@ -29,9 +34,40 @@ Review diffs against project conventions stored in memory. Every finding cites a
 
 ---
 
+## Phase 1.5 — PRD Acceptance Criteria Verification (FIRST)
+
+Before checking code conventions, verify the feature actually does what was agreed.
+
+For each acceptance criterion in the PRD (from `plan.md`):
+
+| Criterion | Met? | Evidence |
+|-----------|------|----------|
+| [criterion 1] | yes/no | [test name / observable behavior] |
+| [criterion 2] | yes/no | [test name / observable behavior] |
+
+If any criterion is unmet: mark review **BLOCKING**. Do not proceed to convention checks.
+
+CHECKPOINT: "[Devline] dl-review Phase 1.5 done: PRD criteria checked"
+
+---
+
 ## Phase 2 — Convention Analysis
 
-Apply the following checks. **Only flag if the relevant convention exists in memory.md or graph evidence is conclusive.** Never flag based on opinion.
+Apply the following checks in severity order (BLOCKING → WARNING → NOTE). **Only flag if the relevant convention exists in memory.md or graph evidence is conclusive.** Never flag based on opinion.
+
+### Severity Reference
+
+| Finding type | Severity | Action |
+|-------------|----------|--------|
+| PRD criterion unmet | BLOCKING | FAIL — report which criterion |
+| Security vulnerability | BLOCKING | FAIL — describe the risk and affected code |
+| Type error / compile failure | BLOCKING | FAIL — name the error and file |
+| Architecture violation | BLOCKING | FAIL — describe the violation and convention |
+| Missing test coverage for new behavior | WARNING | FAIL — name the uncovered path |
+| Dead code introduced | WARNING | Report — name the symbol |
+| Near-clone detected | NOTE | Report — name the similar symbol |
+| Naming inconsistency | NOTE | Report with correct form |
+| DEFAULT | NOTE | Report if evidence is conclusive |
 
 ### Default Checks (from config `review_checks`)
 
@@ -80,6 +116,8 @@ Consider: do callers need updating?
 ```
 
 Verdict: **PASS** | **CONCERNS** | **BLOCKING**
+
+CHECKPOINT: "[Devline] dl-review Phase 3 done: verdict = [PASS/CONCERNS/BLOCKING]"
 
 ---
 

@@ -35,6 +35,8 @@ Haven't passed a stopping gate → cannot proceed. Period.
 
 ## Pre-Flight
 
+**Shared definitions:** Load `skills/_shared.md` now. It defines T1/T2/T3 tiers, SIF rules, the Session Audit Log, and the Unified Status Model. All rules in this file assume those definitions are in context. — because guard rails reference T1/T2/T3 but those tiers are defined only in `_shared.md`; if it is not loaded, the model infers their meaning and produces inconsistent behavior.
+
 Run these checks before anything else. Do not proceed if any fail.
 
 **1. dl-init check**
@@ -50,25 +52,42 @@ If `.devline/` does not exist: HALT — "Run `/dl-init` first to initialize Devl
 ```bash
 LAST=$(python3 -c "import json; print(json.load(open('.devline/config.json')).get('last_synced',''))" 2>/dev/null)
 HEAD=$(git rev-parse HEAD)
+# Stale = last_synced SHA does not exactly match current HEAD SHA
+if [ "$LAST" != "$HEAD" ]; then run dl-sync; fi
 ```
 
-If stale: run `/dl-sync` (T1 Silent).
+Both `last_synced` and HEAD are git commit SHAs. Stale = they do not match exactly. — because without an explicit comparison, "if stale" is ambiguous and the model may rationalize "close enough" and skip the sync.
+
+If stale: run `/dl-sync` (T1 Silent). T2 Inform: "[Devline] Memory was stale — synced to {HEAD}".
 
 **3. Active plan check** (skip if command is `/dl-feature resume`)
 
+**Active plan:** A `plan.md` whose Status line does not contain `COMPLETED` or `ABORTED`, and which is not in the `archive/` subdirectory.
+
 ```bash
-ls .devline/plans/ 2>/dev/null | grep -v "^$"
+# Lists plan.md files that are NOT completed or aborted, excluding archive/
+find .devline/plans -maxdepth 2 -name "plan.md" \
+  | xargs grep -L "Status.*COMPLETED\|Status.*ABORTED" 2>/dev/null \
+  | grep -v archive/
 ```
 
-If an active (non-completed) plan exists: HALT — "A feature is in progress. Use `/dl-feature resume` or delete the plan to start fresh."
+If this command produces any output: HALT. Print exactly: "A feature is in progress. Use `/dl-feature resume` or delete the plan to start fresh."
+
+— because the original `ls .devline/plans/` listed all folders including completed and archived plans, causing false-positive halts that block new features.
 
 **4. Pre-flight build check**
 
-Read `test_cmd` from `.devline/config.json`. Run it:
-```bash
-<test_cmd>
-```
+Read `test_cmd` from `.devline/config.json`.
 
+| Condition | Action |
+|-----------|--------|
+| `test_cmd` is set and non-empty | Run it; apply compile/test failure rules below |
+| `test_cmd` is absent or empty string | T2 Inform: "[Devline] No test_cmd configured — skipping pre-flight build check." Proceed. |
+| DEFAULT | Treat as absent; proceed. |
+
+— because skills that read `test_cmd` had no fallback for absent/empty values, causing inconsistent behavior (sometimes halt, sometimes silent skip) across projects that haven't configured a test command.
+
+If `test_cmd` runs:
 - If compile error: HALT — "Fix build errors before starting a new feature." (error E15)
 - If tests fail: show failures, ask: "Fix these first, or proceed tracking this baseline?" If proceeding: record in plan.md under `## Baseline Health`.
 
@@ -159,7 +178,13 @@ These rules are ABSOLUTE — never override:
 7. **Never skip Phase 6.** Memory sync and cleanup must happen.
 8. **Never remove `.devline/plans/` folders.** They are audit trails.
 9. **Scope ambiguous:** T2 Inform — state assumption, proceed.
-10. **Reality check.** Code that works, follows conventions, passes tests — done.
+10. **Reality check.**
+    <iron-law>
+    Done = all PRD acceptance criteria met AND Phase 5 review completed with PASS result.
+    Tests passing is necessary but not sufficient. "Works" is not a Phase 5 substitute.
+    HALT if Phase 5 has not run. Print exactly: "Phase 5 review is required before completion. Do not proceed."
+    </iron-law>
+    — because the original phrasing was subjective and could be invoked to skip Phase 5 review ("it works and passes tests"), which defeats the Iron Law.
 
 ---
 
@@ -175,7 +200,7 @@ These rules are ABSOLUTE — never override:
 | E07 | All slices in batch stuck | Pause, T3 Gate — report to user, ask direction |
 | E08 | Worktree creation fails | Report error, ask to retry or use sequential mode |
 | E10 | `/dl-feature resume` with no active plan | HALT — "No active feature. Use `/dl-feature` to start one" |
-| E11 | Final review FAIL | Re-open affected slices, re-run; escalate after >2 cycles |
+| E11 | Final review FAIL | Re-open affected slices, re-run review agent (max 2 retries); after >2 cycles: T3 Gate — present findings to user, ask: "Continue retrying, accept with known issues, or abort?" Do not proceed to Phase 6 until resolved. |
 | E13 | dl-explain fails | T2 Warn and proceed with degraded analysis |
 | E15 | Build fails at pre-flight | HALT — "Fix build errors before starting a new feature" |
 

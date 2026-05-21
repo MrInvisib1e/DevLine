@@ -2,6 +2,10 @@
 
 Goal: understand which codebase areas this feature will touch, and extract patterns for agents to follow.
 
+<iron-law>
+Load `skills/_shared.md` before proceeding. T1/T2/T3 tiers assumed throughout.
+</iron-law>
+
 ### Step 1: Load Project Structure
 
 Run:
@@ -10,7 +14,15 @@ Run:
 dl-explain
 ```
 
-Read the output. Identify which modules, services, and controllers are relevant to the PRD. If `dl-explain` fails: retry once; if still failing, proceed with degraded analysis and warn the user (error E13).
+| dl-explain result | Action |
+|-------------------|--------|
+| Success | Read output, proceed to Step 2 |
+| Failure (exit non-zero) | Retry once |
+| Failure on retry | T2 Warn: "[Devline] dl-explain failed — proceeding with degraded analysis (E13)." Continue with manual file inspection. |
+| dl-explain not installed | T2 Warn: "[Devline] dl-explain not found — proceeding with manual analysis." |
+| DEFAULT | Proceed with manual analysis |
+
+Read the output. Identify which modules, services, and controllers are relevant to the PRD.
 
 ### Step 2: Identify Affected Modules
 
@@ -21,6 +33,8 @@ Based on the PRD and `dl-explain` output, list:
 - **Database:** any new tables or migrations needed
 - **Dependencies:** any external services, APIs, or packages needed
 
+CHECKPOINT: "[Devline] Domain Step 2 done: affected modules identified"
+
 ### Step 3: Gather Code Patterns
 
 Find a **reference feature** — an existing feature in the codebase that is structurally similar to what we're building.
@@ -28,6 +42,8 @@ Find a **reference feature** — an existing feature in the codebase that is str
 Ask the user: "I'll use `[feature X]` as the reference for code patterns. Does that work, or is there a better reference?"
 
 **Greenfield fallback (no similar feature):** Use `.devline/memory/` architecture docs and `CONTRIBUTING.md` if present.
+
+<scope>READ: up to 5 files from the reference feature only. DO NOT: read entire directories, open unrelated files, or load more than 5 files total.</scope>
 
 Read up to 5 key files from the reference feature:
 - Entity/model
@@ -37,6 +53,8 @@ Read up to 5 key files from the reference feature:
 - Test file
 
 Extract patterns. They will be written to `plan.md` in Phase 2 under `## Pattern Library`. For now, hold them in session context.
+
+CHECKPOINT: "[Devline] Domain Step 3 done: reference feature patterns extracted"
 
 ````markdown
 ## Pattern Library
@@ -81,3 +99,5 @@ Assemble this section. It will be written to `plan.md` when the plan folder is c
 **External dependencies:** [list or "none"]
 **Key risks:** [list or "none"]
 ```
+
+CHECKPOINT: "[Devline] Domain Step 4 done: domain analysis assembled, ready for Phase 2"
