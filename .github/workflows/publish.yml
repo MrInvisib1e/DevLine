@@ -35,9 +35,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24.x'
           registry-url: 'https://registry.npmjs.org'
-      - name: Remove token auth (use OIDC)
-        run: sed -i '/_authToken/d' "$NPM_CONFIG_USERCONFIG"
       - name: Publish
-        run: npx --yes npm@11 publish --provenance --access public
+        run: npm publish --provenance --access public
