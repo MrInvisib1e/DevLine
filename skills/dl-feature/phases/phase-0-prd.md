@@ -18,11 +18,17 @@ Goal: turn a feature description into a structured PRD that everyone agrees on b
 Ask these questions **ONE AT A TIME**. Wait for the answer before asking the next.
 
 1. **Actor:** "Who is the primary actor? (e.g., authenticated user, admin, anonymous visitor)"
+   > Common variants: `authenticated user` · `admin` · `anonymous visitor` · `background job / system`
 2. **Goal:** "What does the actor want to accomplish? (one sentence)"
+   > Common variants: `view/list [resource]` · `create/submit [resource]` · `edit/update [resource]` · `delete/remove [resource]` · `receive notification about [event]`
 3. **Scope:** "What is explicitly IN scope for this feature?"
+   > Common variants: `[CRUD operation] on [entity]` · `UI form + API endpoint` · `background processing + status UI` · `third-party integration (read-only)`
 4. **Out of scope:** "What is explicitly OUT of scope? (prevents scope creep)"
+   > Common variants: `bulk operations` · `admin tooling` · `mobile/native app` · `email/push notifications` · `analytics/reporting` · `i18n/localization`
 5. **Success criteria:** "How will we know this feature is done? List 2-4 acceptance criteria."
+   > Common variants: `[Actor] can [verb] [noun] and sees [result]` · `[Entity] appears/disappears in [list/view]` · `Error message shown when [invalid input]` · `[Action] persists after page reload`
 6. **Edge cases:** "Are there any important edge cases or error states to handle?"
+   > Common variants: `empty state (no items yet)` · `validation errors on form submit` · `concurrent edits / race conditions` · `permission denied (unauthorized user)` · `network failure / timeout` · `none — straightforward CRUD`
 
 After all answers, present the structured PRD (see PRD Template below).
 
@@ -30,7 +36,9 @@ After all answers, present the structured PRD (see PRD Template below).
 
 Ask only:
 1. "Who is the primary actor?"
+   > Common variants: `authenticated user` · `admin` · `anonymous visitor` · `background job / system`
 2. "What are 2-3 key acceptance criteria?"
+   > Common variants: `[Actor] can [verb] [noun]` · `Error shown for invalid input` · `Change persists after reload`
 
 Generate the PRD from the description + these 2 answers. Present for approval.
 
