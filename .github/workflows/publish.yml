@@ -38,4 +38,6 @@ jobs:
           node-version: '24.x'
           registry-url: 'https://registry.npmjs.org'
       - name: Publish
-        run: npm publish --provenance --access public
+        run: |
+          sed -i '/_authToken/d' "$NPM_CONFIG_USERCONFIG"
+          npm publish --provenance --access public
