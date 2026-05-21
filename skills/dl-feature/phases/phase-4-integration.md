@@ -1,5 +1,9 @@
 # Phase 4: Integration Testing
 
+<iron-law>
+Load `skills/_shared.md` before proceeding. T1/T2/T3 tiers assumed throughout.
+</iron-law>
+
 ## Purpose
 
 Validate that parallel slices work correctly together. Catch contract violations (interface mismatches) before final review.
@@ -62,3 +66,13 @@ The integration agent writes cross-slice integration tests and verifies they pas
 | DEFAULT | — | → T2 Inform, retry |
 
 CHECKPOINT: "[Devline] Integration tests: PASS"
+
+### If integration fails
+
+| Failure type | Diagnosis | Recovery |
+|-------------|-----------|----------|
+| Merge conflict between slices | `git diff --name-only HEAD~1` to identify conflicting file | Resolve conflict in affected file, re-run integration test |
+| Slice dependency missing | Check slice JSON `depends_on` fields | Ensure dependency slice is DONE before retrying |
+| Type errors after merge | Run typecheck command from `quality_hooks` | Fix type errors in the merged output |
+| Tests pass but behavior broken | Check integration test vs unit test coverage gap | Add integration test covering the broken path |
+| DEFAULT | T2 Warn + T3 Gate if unresolved after 1 retry | |

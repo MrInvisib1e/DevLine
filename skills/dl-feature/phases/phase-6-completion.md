@@ -1,11 +1,21 @@
 # Phase 6: Completion
 
-## Pre-flight
+<iron-law>
+Load `skills/_shared.md` before proceeding. T1/T2/T3 tiers assumed throughout.
+NEVER complete without Phase 5 PASS. NEVER skip memory sync after merge.
+</iron-law>
 
-Before entering Phase 6:
-- [ ] Phase 5 review returned PASS
-- [ ] All slice JSONs have `status: "done"`
-- [ ] `plan.md` shows all slices as complete
+## Pre-flight Checklist (T1 Silent — verify ALL before proceeding)
+
+| Check | Pass? |
+|-------|-------|
+| Phase 5 review result = PASS | yes/no |
+| All slice JSONs have `status: "done"` (none stuck or pending) | yes/no |
+| All PRD acceptance criteria verified in Phase 5 | yes/no |
+| No uncommitted changes on the feature branch | yes/no |
+| plan.md status is up to date | yes/no |
+
+If any item is no: T2 Inform the specific failure. Do not present completion options until resolved.
 
 ## Step 1 — Post-completion verification gate (T1/T2)
 
@@ -98,7 +108,7 @@ Wait for response. Then execute the chosen option per the Completion Option Tabl
 | A | `git checkout <base> && git pull && git merge --no-ff feature/<name> -m "feat: <feature-name>"` → run tests → cleanup |
 | B | `git push -u origin feature/<name>` → `gh pr create --title "<feature-name>" --body "Closes #<issue>"` |
 | C | T2 Inform: `[Devline] Branch kept: <branch-name>. PR or merge when ready.` |
-| D | Ask: "Type 'discard' to confirm." → on confirmation: `git checkout <base> && git branch -D feature/<name>` → cleanup |
+| D | Show-then-act: "You are about to force-delete branch `feature/<name>`. Commits ahead of base: [N]. Uncommitted changes: [none/list]. Type 'discard' to confirm, or Enter to cancel." → on typed 'discard': `git checkout <base> && git branch -D feature/<name>` → cleanup |
 | DEFAULT | → A (merge now) |
 
 ## Step 5 — Record completion (T1)
@@ -116,6 +126,8 @@ Append to `.devline/history.json` (create if doesn't exist):
 ```
 
 CHECKPOINT: "[Devline] Feature <name> complete and recorded"
+
+CHECKPOINT: "[Devline] Phase 6 complete: memory synced, plan archived, feature complete"
 
 ## Step 6 — Cleanup (T1)
 
