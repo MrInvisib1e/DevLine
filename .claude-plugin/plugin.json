@@ -1,7 +1,7 @@
 {
   "name": "devline",
   "description": "AI development workflow skills — makes AI behave like a senior engineer. PRD-first, domain analysis, vertical slices, accurate codebase memory.",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "author": {
     "name": "Devline"
   },
