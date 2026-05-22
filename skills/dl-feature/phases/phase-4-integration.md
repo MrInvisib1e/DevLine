@@ -45,6 +45,17 @@ Check:
 
 If blocking violations found: route back to the specific slice(s) responsible. Do NOT route to all slices.
 
+```dl:choice
+question: A circular dependency was detected between slices. How do you want to resolve it?
+options:
+  - label: Extract shared abstraction
+    description: Move the shared code to a new module both slices can import
+  - label: Merge the two slices
+    description: Combine the circular slices into a single slice
+  - label: Break the cycle manually
+    description: I'll describe how to restructure the dependency
+```
+
 ## Step 3 — Dispatch integration test agent
 
 Dispatch integration agent with:
@@ -64,6 +75,17 @@ The integration agent writes cross-slice integration tests and verifies they pas
 | FAIL | multiple slices | → route fixes to responsible slices |
 | FAIL (3rd time) | any | → T3 Gate: show contract failures |
 | DEFAULT | — | → T2 Inform, retry |
+
+```dl:choice
+question: Integration contract failed 3 times. How do you want to proceed?
+options:
+  - label: Route back to Phase 3
+    description: Send failures to implementation agents to fix
+  - label: Accept with known gaps
+    description: Proceed with documented contract failures
+  - label: Abort feature
+    description: Stop and leave branch as-is for manual resolution
+```
 
 CHECKPOINT: "[Devline] Integration tests: PASS"
 

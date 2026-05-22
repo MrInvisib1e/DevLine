@@ -24,28 +24,119 @@ DO NOT proceed to Phase 1 until the user explicitly approves the PRD.
 
 Ask these questions **ONE AT A TIME**. Wait for the answer before asking the next.
 
-1. **Actor:** "Who is the primary actor? (e.g., authenticated user, admin, anonymous visitor)"
-   > Common variants: `authenticated user` · `admin` · `anonymous visitor` · `background job / system`
-2. **Goal:** "What does the actor want to accomplish? (one sentence)"
-   > Common variants: `view/list [resource]` · `create/submit [resource]` · `edit/update [resource]` · `delete/remove [resource]` · `receive notification about [event]`
-3. **Scope:** "What is explicitly IN scope for this feature?"
-   > Common variants: `[CRUD operation] on [entity]` · `UI form + API endpoint` · `background processing + status UI` · `third-party integration (read-only)`
-4. **Out of scope:** "What is explicitly OUT of scope? (prevents scope creep)"
-   > Common variants: `bulk operations` · `admin tooling` · `mobile/native app` · `email/push notifications` · `analytics/reporting` · `i18n/localization`
-5. **Success criteria:** "How will we know this feature is done? List 2-4 acceptance criteria."
-   > Common variants: `[Actor] can [verb] [noun] and sees [result]` · `[Entity] appears/disappears in [list/view]` · `Error message shown when [invalid input]` · `[Action] persists after page reload`
-6. **Edge cases:** "Are there any important edge cases or error states to handle?"
-   > Common variants: `empty state (no items yet)` · `validation errors on form submit` · `concurrent edits / race conditions` · `permission denied (unauthorized user)` · `network failure / timeout` · `none — straightforward CRUD`
+1. **Actor:**
+   ```dl:choice
+   question: Who is the primary actor?
+   options:
+     - label: Authenticated user
+       description: A logged-in user acting on their own data
+     - label: Admin
+       description: A privileged user managing others' data or system config
+     - label: Anonymous visitor
+       description: An unauthenticated user with read-only or public access
+     - label: Background job / system
+       description: An automated process, not a human actor
+   ```
+2. **Goal:**
+   ```dl:choice
+   question: What does the actor want to accomplish? (pick closest, or select Other to type your own)
+   options:
+     - label: View / list a resource
+       description: Read-only access to existing data
+     - label: Create / submit a resource
+       description: Add new data to the system
+     - label: Edit / update a resource
+       description: Modify existing data
+     - label: Delete / remove a resource
+       description: Remove data from the system
+   ```
+3. **Scope:**
+   ```dl:choice
+   question: What is explicitly IN scope for this feature? (select all that apply)
+   multiple: true
+   options:
+     - label: CRUD on entity + API endpoint
+       description: Standard create/read/update/delete operation with backend API
+     - label: UI form + API endpoint
+       description: A user-facing form that calls a backend endpoint
+     - label: Background processing + status UI
+       description: Async job with a polling or status-display component
+     - label: Third-party integration (read-only)
+       description: Fetching or displaying data from an external service
+   ```
+4. **Out of scope:**
+   ```dl:choice
+   question: What is explicitly OUT of scope? (select all that apply)
+   multiple: true
+   options:
+     - label: Bulk operations
+       description: Acting on many records at once
+     - label: Admin tooling
+       description: Backoffice or privileged management interfaces
+     - label: Mobile / native app
+       description: Native iOS or Android clients
+     - label: Email / push notifications
+       description: Outbound messaging triggered by events
+   ```
+5. **Success criteria:**
+   ```dl:choice
+   question: Which best describes the success criteria? (select all that apply, then we'll refine)
+   multiple: true
+   options:
+     - label: Actor can perform action and sees result
+       description: "[Actor] can [verb] [noun] and sees [confirmation/result]"
+     - label: Entity appears / disappears in list or view
+       description: "Created/deleted items are immediately visible in the relevant list"
+     - label: Error message shown for invalid input
+       description: Validation errors are surfaced clearly to the user
+     - label: Change persists after page reload
+       description: Data is durably stored, not just in-memory
+   ```
+6. **Edge cases:**
+   ```dl:choice
+   question: Which edge cases should be handled? (select all that apply)
+   multiple: true
+   options:
+     - label: Empty state (no items yet)
+       description: What the user sees before any data exists
+     - label: Validation errors on form submit
+       description: Required fields missing, format errors, etc.
+     - label: Permission denied (unauthorized user)
+       description: User tries to access or act on something they can't
+     - label: None — straightforward CRUD
+       description: No special edge cases beyond the happy path
+   ```
 
 After all answers, present the structured PRD (see PRD Template below).
 
 ### Existing Project — Quick Mode (QUICK_MODE=true)
 
 Ask only:
-1. "Who is the primary actor?"
-   > Common variants: `authenticated user` · `admin` · `anonymous visitor` · `background job / system`
-2. "What are 2-3 key acceptance criteria?"
-   > Common variants: `[Actor] can [verb] [noun]` · `Error shown for invalid input` · `Change persists after reload`
+1. **Actor:**
+   ```dl:choice
+   question: Who is the primary actor?
+   options:
+     - label: Authenticated user
+       description: A logged-in user acting on their own data
+     - label: Admin
+       description: A privileged user managing others' data or system config
+     - label: Anonymous visitor
+       description: An unauthenticated user with read-only or public access
+     - label: Background job / system
+       description: An automated process, not a human actor
+   ```
+2. **Acceptance criteria:**
+   ```dl:choice
+   question: What are 2-3 key acceptance criteria? (select all that apply)
+   multiple: true
+   options:
+     - label: Actor can perform the core action
+       description: "[Actor] can [verb] [noun]"
+     - label: Error shown for invalid input
+       description: Validation or error states are handled
+     - label: Change persists after reload
+       description: Data is durably saved
+   ```
 
 Generate the PRD from the description + these 2 answers. Present for approval.
 
@@ -179,7 +270,15 @@ Before presenting the PRD, verify: does any item in "Out of scope" contradict an
 
 ### STOPPING GATE — PRD Approval
 
-> **"Does this PRD look right? (yes to proceed, or tell me what to change)"**
+```dl:choice
+question: Does this PRD look right?
+options:
+  - label: Yes, proceed
+    description: PRD is approved — move to domain analysis
+  - label: Change something
+    description: I want to adjust part of the PRD before proceeding
+default: Yes, proceed
+```
 
 **DO NOT proceed to Phase 1 until the user explicitly approves the PRD.**
 

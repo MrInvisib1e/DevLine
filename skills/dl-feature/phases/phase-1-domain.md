@@ -39,7 +39,17 @@ CHECKPOINT: "[Devline] Domain Step 2 done: affected modules identified"
 
 Find a **reference feature** — an existing feature in the codebase that is structurally similar to what we're building.
 
-Ask the user: "I'll use `[feature X]` as the reference for code patterns. Does that work, or is there a better reference?"
+Present this gate to the user:
+
+```dl:choice
+question: I'll use `[feature X]` as the reference for code patterns. Does that work?
+options:
+  - label: Yes, use that reference
+    description: Proceed with the identified reference feature
+  - label: Use a different reference
+    description: I'll name a better reference feature to use
+default: Yes, use that reference
+```
 
 **Greenfield fallback (no similar feature):** Use `.devline/memory/` architecture docs and `CONTRIBUTING.md` if present.
 
