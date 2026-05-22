@@ -71,9 +71,15 @@ Self-review before saving:
 3. Scope check — is this one implementable unit?
 4. Ambiguity check — any requirement that could be interpreted two ways? Pick one.
 
-Ask user: "Spec saved to `{path}`. Review it and confirm before we plan."
-
-Wait for user approval before proceeding to Phase 2.
+```dl:choice
+question: Spec saved to `{path}`. Does it look right before we plan?
+options:
+  - label: Yes, start planning
+    description: Spec is correct — proceed to Phase 2
+  - label: Change the spec
+    description: I'll describe what to update in the spec first
+default: Yes, start planning
+```
 
 ---
 
@@ -137,7 +143,15 @@ Rules for tasks:
 
 ### 3.3 Write to `.devline/plans/YYYY-MM-DD-<slug>/plan.md`
 
-T3 Gate: Present plan summary. Wait for approval.
+```dl:choice
+question: Does this plan look right?
+options:
+  - label: Yes, proceed with implementation
+    description: Plan is approved — ready to execute
+  - label: Change something
+    description: I want to adjust the plan before proceeding
+default: Yes, proceed with implementation
+```
 
 After approval: T2 Inform — "Plan saved to `.devline/plans/{path}/plan.md`. Use `/dl-feature` to execute."
 

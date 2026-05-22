@@ -46,6 +46,17 @@ Wait for Spec Compliance Report.
 | FAIL after >2 cycles | Escalate to user — present all findings, ask for direction |
 | DEFAULT | Proceed to Stage 2 |
 
+```dl:choice
+question: Review has failed more than 2 times. How do you want to proceed?
+options:
+  - label: Retry with focused fixes
+    description: Send the specific failures back to the implementation agent for one more cycle
+  - label: Accept with known issues
+    description: Proceed to Phase 6 with the review findings documented
+  - label: Abort feature
+    description: Stop and leave branch as-is for manual resolution
+```
+
 CHECKPOINT: "[Devline] Stage 1 (spec compliance): PASS"
 
 ### Stage 2: Code Quality Review
@@ -68,6 +79,17 @@ Wait for Final Review Report.
 | FAIL | Read BLOCKING_ISSUES → determine affected slices → re-open → re-run Phase 3 → re-run Stage 2 |
 | FAIL after >2 cycles | Escalate to user — present all findings, ask for direction |
 | DEFAULT | Proceed to Phase 6 |
+
+```dl:choice
+question: Review has failed more than 2 times. How do you want to proceed?
+options:
+  - label: Retry with focused fixes
+    description: Send the specific failures back to the implementation agent for one more cycle
+  - label: Accept with known issues
+    description: Proceed to Phase 6 with the review findings documented
+  - label: Abort feature
+    description: Stop and leave branch as-is for manual resolution
+```
 
 CHECKPOINT: "[Devline] Stage 2 (code quality): PASS"
 

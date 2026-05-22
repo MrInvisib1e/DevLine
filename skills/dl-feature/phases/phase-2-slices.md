@@ -253,7 +253,15 @@ Present the full slice plan:
 - Batch 2 (sequential): slice-3
 ```
 
-> **"Does this slice plan look right? (yes to proceed, or tell me what to change)"**
+```dl:choice
+question: Does this slice plan look right?
+options:
+  - label: Yes, proceed
+    description: Approve slices and start implementation
+  - label: Change something
+    description: I want to adjust the slices before proceeding
+default: Yes, proceed
+```
 
 **DO NOT proceed to Phase 3 until the user explicitly approves the slices.**
 

@@ -284,10 +284,19 @@ All checks are zero-LLM-cost (filesystem + git operations).
 | All slices in batch = DONE, review = PASS | Proceed to next batch or Phase 4 |
 | Any slice stuck (max_cycles exceeded) | Mark stuck, T3 Gate: report to user |
 | All slices in batch stuck | HALT — T3 Gate with full status report |
-| Loop iteration count > 3 × (number of slices in batch) | T3 Gate: "Execution is taking longer than expected. [status]. Continue or abort?" |
+| Loop iteration count > 3 × (number of slices in batch) | T3 Gate: present dl:choice — "Execution is taking longer than expected" |
 | DEFAULT | Continue loop |
 
 — because without an explicit termination condition, agents can cycle indefinitely on stuck slices.
+
+```dl:choice
+question: Execution is taking longer than expected. [status]. How do you want to proceed?
+options:
+  - label: Continue
+    description: Keep running — some slices may still be in progress
+  - label: Abort
+    description: Stop execution and mark in-progress slices as stuck
+```
 
 ---
 

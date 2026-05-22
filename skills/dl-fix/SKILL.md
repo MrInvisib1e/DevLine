@@ -119,7 +119,15 @@ Anti-regression: [name of test that proves fix works AND would fail without it]
 Root cause:      [the specific code/config/state that causes the bug]
 ```
 
-Wait for user to confirm or correct the contract before proceeding.
+```dl:choice
+question: Does this behavior contract correctly describe the bug?
+options:
+  - label: Yes, proceed with fix
+    description: Contract is correct — start the fix cycle
+  - label: Correct the contract
+    description: I'll describe what needs to change in the contract
+default: Yes, proceed with fix
+```
 
 ### Step 3.3 — Test Hypothesis Minimally
 
