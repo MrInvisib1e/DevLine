@@ -322,4 +322,8 @@ options:
 
 If "Change selection": ask "Which projects should be included or excluded?" (open text). Update the table and re-present.
 
-**After approval:** Record the involved child projects in `plan.md` under `## Involved Projects`. Proceed to Phase 1.
+**After approval:** Record the involved child projects in `plan.md` under `## Involved Projects`.
+
+CHECKPOINT: "[Devline] Child project involvement approved and recorded"
+
+Proceed to Phase 1.
