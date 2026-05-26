@@ -62,18 +62,13 @@ If stale: run `/dl-sync` (T1 Silent). T2 Inform: "[Devline] Memory was stale —
 
 **3. Active plan check** (skip if command is `/dl-feature resume`)
 
-**Active plan:** A `plan.md` whose Status line does not contain `COMPLETED` or `ABORTED`, and which is not in the `archive/` subdirectory.
+Read `mode` from `.devline/config.json`.
 
-```bash
-# Lists plan.md files that are NOT completed or aborted, excluding archive/
-find .devline/plans -maxdepth 2 -name "plan.md" \
-  | xargs grep -L "Status.*COMPLETED\|Status.*ABORTED" 2>/dev/null \
-  | grep -v archive/
-```
-
-If this command produces any output: HALT. Print exactly: "A feature is in progress. Use `/dl-feature resume` or delete the plan to start fresh."
-
-— because the original `ls .devline/plans/` listed all folders including completed and archived plans, causing false-positive halts that block new features.
+| Mode | Active plan rule |
+|------|-----------------|
+| `project` | If any non-COMPLETED/non-ABORTED plan exists → HALT: "A feature is in progress. Use `/dl-feature resume` or delete the plan to start fresh." |
+| `orchestrator` | Multiple active plans are allowed. Skip this check. |
+| DEFAULT | Treat as `project` mode |
 
 **4. Pre-flight build check**
 
@@ -100,7 +95,17 @@ If `test_cmd` runs:
 | `/dl-feature resume` | Read `skills/dl-feature/phases/resume.md` and follow it |
 | `/dl-feature quick <desc>` | Set `QUICK_MODE=true`, read `phases/phase-0-prd.md` |
 | `/dl-feature <desc>` | Set `QUICK_MODE=false`, read `phases/phase-0-prd.md` |
-| No description | Ask: "What feature are you building?" |
+| No description | Read `phases/resume.md` → Feature Navigation Hub |
+
+### Orchestrator Detection (T1 Silent)
+
+Before loading phase-0, read `.devline/config.json`:
+
+| config.json `mode` | Action |
+|--------------------|--------|
+| `"orchestrator"` | Set `ORCHESTRATOR_MODE=true`. T2 Inform: "[Devline] Orchestrator mode — will propose child project involvement after PRD." |
+| `"project"` or absent | Set `ORCHESTRATOR_MODE=false`. Proceed normally. |
+| DEFAULT | Set `ORCHESTRATOR_MODE=false` |
 
 ---
 
