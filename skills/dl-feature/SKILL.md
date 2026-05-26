@@ -95,7 +95,7 @@ If `test_cmd` runs:
 | `/dl-feature resume` | Read `skills/dl-feature/phases/resume.md` and follow it |
 | `/dl-feature quick <desc>` | Set `QUICK_MODE=true`, read `phases/phase-0-prd.md` |
 | `/dl-feature <desc>` | Set `QUICK_MODE=false`, read `phases/phase-0-prd.md` |
-| No description | Read `phases/resume.md` → Feature Navigation Hub |
+| No description | Read `phases/resume.md` → Feature Navigation Hub. Shows all active features at current level (+ children if orchestrator); developer selects one or starts new. |
 
 ### Orchestrator Detection (T1 Silent)
 
