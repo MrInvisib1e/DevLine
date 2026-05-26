@@ -35,6 +35,23 @@ Based on the PRD and `dl-explain` output, list:
 
 CHECKPOINT: "[Devline] Domain Step 2 done: affected modules identified"
 
+#### Orchestrator Mode — Per-Child Domain Analysis (only when ORCHESTRATOR_MODE=true)
+
+When in orchestrator mode, perform Step 2 for each involved child project separately:
+
+| Child Project | Backend modules | Frontend modules | DB changes | Key risks |
+|---------------|----------------|-----------------|------------|-----------|
+| <child-name>  | <list>          | <list>           | yes/no     | <list>    |
+
+For each involved child:
+- Read `<child-path>/.devline/memory.md` for architecture context
+- Identify only the modules within that child that the PRD touches
+- Note any inter-child dependencies (e.g., "api must expose endpoint before web can implement UI")
+
+The root `plan.md` will contain one `## Domain Analysis — <child-name>` section per involved child.
+
+CHECKPOINT: "[Devline] Orchestrator domain analysis done: N child projects analyzed"
+
 ### Step 3: Gather Code Patterns
 
 Find a **reference feature** — an existing feature in the codebase that is structurally similar to what we're building.

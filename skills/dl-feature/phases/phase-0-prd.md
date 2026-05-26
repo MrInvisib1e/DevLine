@@ -285,3 +285,45 @@ default: Yes, proceed
 If the user requests changes: revise the PRD and re-present it. Repeat until approved.
 
 **On approval:** Fill in the `Approved:` timestamp in the PRD and write it to `plan.md`. — because on resume, there is no way to know if the PRD is still current without a timestamp.
+
+### Orchestrator Child Proposal (only when ORCHESTRATOR_MODE=true)
+
+After PRD approval, before proceeding to Phase 1:
+
+**Step O-1: Read child project contexts (T1 Silent)**
+
+Read `.devline/config.json` `projects` list. For each registered child:
+1. Read `<child-path>/.devline/memory.md` if it exists
+2. Read `<child-path>/.devline/config.json` for stack info
+3. If child has no `.devline/`: T2 Warn — "[Devline] <child-name> has no .devline/ — skipping"
+
+**Step O-2: Propose involvement (T2 Inform)**
+
+For each child project, reason about whether the PRD's actor, goal, and scope are likely to touch that project. Build a proposal table:
+
+```
+| Project | Involved? | Reason |
+|---------|-----------|--------|
+| api     | Yes       | Feature requires a new endpoint for X |
+| web     | Yes       | Feature requires UI changes for X |
+| worker  | No        | Background job unrelated to this feature |
+```
+
+**Step O-3: Child involvement approval (T3 Gate)**
+
+```dl:choice
+question: These are the child projects I propose to involve in this feature. Adjust if needed.
+options:
+  - label: Looks right, proceed
+    description: Use this project selection for the feature plan
+  - label: Change selection
+    description: I want to include or exclude specific projects
+```
+
+If "Change selection": ask "Which projects should be included or excluded?" (open text). Update the table and re-present.
+
+**After approval:** Record the involved child projects in `plan.md` under `## Involved Projects`.
+
+CHECKPOINT: "[Devline] Child project involvement approved and recorded"
+
+Proceed to Phase 1.

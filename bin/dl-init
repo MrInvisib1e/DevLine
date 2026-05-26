@@ -47,13 +47,14 @@ df_gate() {
 # 3. Neither? → create .devline/ in current directory
 # NEVER go above git root.
 
-GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || GIT_ROOT=""
+if [ -z "$GIT_ROOT" ] && [ "$MODE" != "orchestrator" ]; then
   echo "Error: not inside a git repository" >&2; exit 1
-}
+fi
 
 if [ -d ".devline" ]; then
   PROJECT_ROOT="$(pwd)"
-elif [ -d "$GIT_ROOT/.devline" ]; then
+elif [ -n "$GIT_ROOT" ] && [ -d "$GIT_ROOT/.devline" ]; then
   PROJECT_ROOT="$GIT_ROOT"
 else
   PROJECT_ROOT="$(pwd)"
@@ -219,28 +220,39 @@ PYEOF
 
   orchestrator)
     mkdir -p "$DEVLINE_DIR"
-    # Discover child .devline/ directories
-    PROJECTS="[]"
+
+    # Auto-discover child .devline/ directories (mindepth 2 = not root itself)
+    DISCOVERED="[]"
     while IFS= read -r -d '' dir; do
-      path="${dir%/.devline}"
-      name="$(basename "$path")"
-      rel="$(python3 -c "import os; print(os.path.relpath('$path', '$PROJECT_ROOT'))")"
-      PROJECTS=$(echo "$PROJECTS" | python3 -c "
-import json,sys
-p=json.load(sys.stdin)
-p.append({'name':'$name','path':'$rel'})
+      child_path="${dir%/.devline}"
+      child_name="$(basename "$child_path")"
+      rel="$(python3 -c "import os; print(os.path.relpath('$child_path', '$PROJECT_ROOT'))" 2>/dev/null || echo "$child_path")"
+      DISCOVERED=$(echo "$DISCOVERED" | python3 -c "
+import json, sys
+p = json.load(sys.stdin)
+entry = {'name': '$child_name', 'path': '$rel'}
+if entry not in p:
+    p.append(entry)
 print(json.dumps(p))
 ")
-    done < <(find "$PROJECT_ROOT" -mindepth 2 -maxdepth 4 -name ".devline" -type d -print0)
+    done < <(find "$PROJECT_ROOT" -mindepth 2 -maxdepth 4 -name ".devline" -type d -print0 2>/dev/null)
+
+    LAST_SYNCED="$(git rev-parse HEAD 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
 
     cat > "$CONFIG" << JSON
 {
   "service": "$(basename "$PROJECT_ROOT")",
   "mode": "orchestrator",
-  "projects": $PROJECTS,
-  "last_synced": "$(git rev-parse HEAD 2>/dev/null || echo 'unknown')"
+  "projects": $DISCOVERED,
+  "last_synced": "$LAST_SYNCED"
 }
 JSON
-    echo "[dl-init] ✅ Orchestrator initialized with projects: $PROJECTS"
+    echo "[dl-init] ✅ Orchestrator initialized at $DEVLINE_DIR"
+    if [ "$(echo "$DISCOVERED" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")" = "0" ]; then
+      echo "[dl-init] WARNING: No child projects found. Initialize child projects with dl-init first, then re-run." >&2
+    else
+      echo "[dl-init] Registered projects:"
+      echo "$DISCOVERED" | python3 -c "import json,sys; [print(f\"  - {p['name']} ({p['path']})\") for p in json.load(sys.stdin)]"
+    fi
     ;;
 esac
