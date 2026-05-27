@@ -31,7 +31,7 @@ NO FIX WITHOUT A FAILING TEST FIRST (TDD).
 1. Check `.devline/` exists — if not: HALT — "Run `/dl-init` first."
 2. Check memory staleness:
    ```bash
-   LAST=$(python3 -c "import json; print(json.load(open('.devline/config.json')).get('last_synced',''))")
+   LAST=$(jq -r '.last_synced // ""' .devline/config.json 2>/dev/null)
    HEAD=$(git rev-parse HEAD)
    ```
    If `LAST != HEAD`: run `/dl-sync` first. T2 Inform: "Memory was stale — synced."

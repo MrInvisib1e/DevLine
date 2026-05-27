@@ -15,7 +15,7 @@ Check if memory is stale and regenerate if needed. Called automatically by post-
 ### Step 1 — Check staleness (T1 Silent)
 
 ```bash
-LAST=$(python3 -c "import json; print(json.load(open('.devline/config.json')).get('last_synced',''))" 2>/dev/null)
+LAST=$(jq -r '.last_synced // ""' .devline/config.json 2>/dev/null)
 HEAD=$(git rev-parse HEAD 2>/dev/null)
 ```
 

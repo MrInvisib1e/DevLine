@@ -28,36 +28,24 @@ Run: `dl-log skill_start --skill dl-explain 2>/dev/null || true`
 1. Check `.devline/` exists — if not: HALT — "Run `/dl-init` first."
 2. Check memory staleness:
    ```bash
-   LAST=$(python3 -c "import json; print(json.load(open('.devline/config.json')).get('last_synced',''))")
+   LAST=$(jq -r '.last_synced // ""' .devline/config.json 2>/dev/null)
    HEAD=$(git rev-parse HEAD)
    ```
    If `LAST != HEAD`: run `/dl-sync`. T2 Inform: "[Devline] Memory was stale — synced."
 
 ---
 
-## Entry Routing
+## Step 1: Routing & Scope Detection (T2 Inform)
 
-| Invocation | Query type | Notes |
-|-----------|-----------|-------|
-| `/dl-explain <query>` | Feature or concept search | Search memory + graph |
-| `/dl-explain --file <path>` | File/module explanation | Read file directly |
-| `/dl-explain` (no args) | App-level overview | Use memory.md architecture section |
-| Query < 3 chars | App-level overview | T2 Inform: "Query too short — showing app overview." |
-| Query = "everything" / "all" / "app" | App-level overview | Scope automatically |
-| DEFAULT | Feature search | Proceed to Step 1 |
-
----
-
-## Step 1: Scope Detection (T2 Inform)
-
-Classify the query into one of three scopes:
-
-| Scope | Criteria | What to read |
-|-------|---------|-------------|
-| `app` | No args, or query matches whole-app keywords | `memory.md` architecture + top-level README |
-| `file` | `--file` flag, or query matches a file path pattern (`*.ts`, `/src/...`) | The specified file directly |
-| `feature` | Named concept, domain term, or feature name | Graph + memory + relevant source files |
-| DEFAULT | `feature` | Proceed as feature scope |
+| Invocation | Scope | What to gather |
+|-----------|-------|---------------|
+| `/dl-explain` (no args) | `app` | `memory.md` architecture + top-level README |
+| `/dl-explain --file <path>` | `file` | The specified file directly |
+| Query < 3 chars | `app` | `memory.md` architecture + top-level README — T2 Inform: "Query too short — showing app overview." |
+| Query = "everything" / "all" / "app" | `app` | `memory.md` architecture + top-level README |
+| Query matches a file path pattern (`*.ts`, `/src/...`) | `file` | The matched file directly |
+| `/dl-explain <query>` (named concept or domain term) | `feature` | Graph + memory + relevant source files |
+| DEFAULT | `feature` | Graph + memory + relevant source files |
 
 Print: `[Devline] Explaining: <query> (scope: <app|file|feature>)`
 
@@ -82,6 +70,7 @@ cat .devline/memory.md
 For `feature` or `file` scope, run:
 
 ```bash
+# dl-explain is the graph search CLI binary (~/.devline/bin/dl-explain), not this skill
 dl-explain <query>
 # or for file scope:
 dl-explain --node <path>
@@ -90,18 +79,20 @@ dl-explain --node <path>
 | Result | Action |
 |--------|--------|
 | Symbols found | Note relevant file paths and call relationships |
-| No results | T2 Warn: "[Devline] Graph query returned no results — falling back to file search." Run `grep -r <query> . --include="*.ts" --include="*.js" --include="*.py" -l` |
-| dl-explain not found | T2 Warn: "[Devline] dl-explain binary missing — falling back to file search." |
-| Exit non-zero | T2 Warn: "[Devline] Graph query failed — falling back to file search." |
+| `dl-explain` fails (not found, non-zero exit, or no results) | T2 Warn: "[Devline] Graph query failed — falling back to file search." Run `grep -r <query> . --include="*.ts" --include="*.js" --include="*.py" -l` |
 | DEFAULT | Continue with whatever was found |
 
 ### 2c. Read source files
 
 <scope>
-READ: up to 5 files identified by the graph or file search. DO NOT read entire directories.
+READ: up to 5 files identified by the graph or file search. DO NOT read entire directories. DO NOT suggest code changes, refactors, or improvements — this skill explains only.
 </scope>
 
-For each relevant file found (max 5), read it completely. These are the basis of the explanation.
+| File size | What to read |
+|-----------|-------------|
+| ≤ 300 lines | Read completely |
+| > 300 lines | Read public interface (exports, top-level declarations, key class/function signatures). Use `grep -n "export\|function\|class\|def " <file>` to locate entry points, then read those regions. |
+| DEFAULT | Read completely |
 
 If nothing is found after both graph search and grep:
 

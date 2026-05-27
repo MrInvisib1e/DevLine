@@ -50,7 +50,7 @@ If `.devline/` does not exist: HALT — "Run `/dl-init` first to initialize Devl
 **2. Memory freshness (T1 Silent)**
 
 ```bash
-LAST=$(python3 -c "import json; print(json.load(open('.devline/config.json')).get('last_synced',''))" 2>/dev/null)
+LAST=$(jq -r '.last_synced // ""' .devline/config.json 2>/dev/null)
 HEAD=$(git rev-parse HEAD)
 # Stale = last_synced SHA does not exactly match current HEAD SHA
 if [ "$LAST" != "$HEAD" ]; then run dl-sync; fi
