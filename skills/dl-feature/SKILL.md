@@ -1,7 +1,9 @@
 ---
 name: devline-feature
 description: Full feature lifecycle — PRD → domain → slices → implement → review → completion
-requires: [dl-sync]
+requires: []
+requires_if:
+  dl-sync: memory_stale
 triggers_on_complete: [dl-verify]
 ---
 
@@ -45,20 +47,11 @@ Run these checks before anything else. Do not proceed if any fail.
 which dl-init && test -d .devline/
 ```
 
-If `.devline/` does not exist: HALT — "Run `/dl-init` first to initialize Devline."
+If `.devline/` does not exist: `HALT. Print exactly: "Run /dl-init first to initialize Devline."`
 
 **2. Memory freshness (T1 Silent)**
 
-```bash
-LAST=$(jq -r '.last_synced // ""' .devline/config.json 2>/dev/null)
-HEAD=$(git rev-parse HEAD)
-# Stale = last_synced SHA does not exactly match current HEAD SHA
-if [ "$LAST" != "$HEAD" ]; then run dl-sync; fi
-```
-
-Both `last_synced` and HEAD are git commit SHAs. Stale = they do not match exactly. — because without an explicit comparison, "if stale" is ambiguous and the model may rationalize "close enough" and skip the sync.
-
-If stale: run `/dl-sync` (T1 Silent). T2 Inform: "[Devline] Memory was stale — synced to {HEAD}".
+Apply the **Pre-Flight Staleness Check** defined in `skills/_shared.md`. — because the canonical bash snippet and tier rules live in one place to prevent drift.
 
 **3. Active plan check** (skip if command is `/dl-feature resume`)
 
@@ -93,9 +86,22 @@ If `test_cmd` runs:
 | Command | Action |
 |---------|--------|
 | `/dl-feature resume` | Read `skills/dl-feature/phases/resume.md` and follow it |
-| `/dl-feature quick <desc>` | Set `QUICK_MODE=true`, read `phases/phase-0-prd.md` |
-| `/dl-feature <desc>` | Set `QUICK_MODE=false`, read `phases/phase-0-prd.md` |
+| `/dl-feature quick <desc>` | Set `QUICK_MODE=true`, `ULTRA_MODE=false`, read `phases/phase-0-prd.md` |
+| `/dl-feature <desc>` | Run **Trivial-Work Classifier** (below). Set modes per its result, read `phases/phase-0-prd.md` |
 | No description | Read `phases/resume.md` → Feature Navigation Hub. Shows all active features at current level (+ children if orchestrator); developer selects one or starts new. |
+
+### Trivial-Work Classifier (T1 Silent → T2 Inform)
+
+Runs only on `/dl-feature <desc>` (no explicit mode flag). The classifier and resulting downgrade follow the **Auto-Classification** contract in `skills/_shared.md`.
+
+| Signal in `<description>` | Action |
+|---------------------------|--------|
+| < 80 chars AND matches `/typo\|rename\|copy text\|wording\|padding\|margin\|color\|spacing/i` | Set `ULTRA_MODE=true`, `QUICK_MODE=true`. T2 Inform: `[Devline] Auto-classified as trivial — using ultra-quick PRD (1 question).` |
+| Starts with `/^(fix typo\|change copy\|rename\|adjust)/i` | Same as above |
+| Mentions only `.md`, `.css`, `.json`, or `.txt` files explicitly | Same as above |
+| DEFAULT | Set `ULTRA_MODE=false`, `QUICK_MODE=false`. Use Full mode. |
+
+— because forcing the full 6-question PRD on a one-line copy change is friction without benefit; the T2 Inform lets the user interrupt if the classification is wrong.
 
 ### Orchestrator Detection (T1 Silent)
 
@@ -139,19 +145,19 @@ Run `dl-check`:
 
 ---
 
-## Quick Mode Summary
+## Mode Summary
 
-| Phase | Full Mode | Quick Mode |
-|-------|-----------|------------|
-| Phase 0 | 3–6 clarifying questions | 2–3 questions |
-| Phase 1 | Full domain analysis | Same |
-| Phase 2 | Full decomposition | Auto-generate 1–3 slices, still requires approval |
-| Phase 3 | Parallel dispatch, worktrees | Sequential, direct commits, no worktrees |
-| Test Agent | Always dispatch | Skip if: ≤2 steps + test_cmd passed + modifying existing behavior |
-| Phase 4 | Always | Skip if single slice and no stuck slices |
-| Phase 5 | Always | Same |
+| Phase | Full Mode | Quick Mode | Ultra Mode |
+|-------|-----------|------------|------------|
+| Phase 0 | 3–6 clarifying questions | 2 questions | 1 question (acceptance criteria); rest inferred |
+| Phase 1 | Full domain analysis | Same | **Skipped** |
+| Phase 2 | Full decomposition | Auto-generate 1–3 slices, still requires approval | Auto-generate 1 slice, still requires approval |
+| Phase 3 | Parallel dispatch, worktrees | Sequential, direct commits, no worktrees | Same as Quick |
+| Test Agent | Always dispatch | Skip if: ≤2 steps + test_cmd passed + modifying existing behavior | Same as Quick |
+| Phase 4 | Always | Skip if single slice and no stuck slices | Skipped (single slice) |
+| Phase 5 | Always | Same | Same |
 
-**Quick mode boundary:** If Phase 2 reveals >3 slices are genuinely needed, warn user: "This feature needs more than 3 slices — quick mode auto-limits to 3. Continue with quick mode or switch to full mode?" Wait for answer.
+**Quick/Ultra mode boundary:** If Phase 2 reveals >3 slices are genuinely needed (quick) or >1 slice (ultra), warn user: "This feature needs more slices than {mode} mode allows — continue with {mode} mode or switch to a fuller mode?" Wait for answer.
 
 ---
 
@@ -197,7 +203,7 @@ These rules are ABSOLUTE — never override:
 
 | Code | Trigger | Action |
 |------|---------|--------|
-| E01 | `.devline/` missing | HALT — "Run `/dl-init` first" |
+| E01 | `.devline/` missing | `HALT. Print exactly: "Run /dl-init first to initialize Devline."` |
 | E03 | Active plan exists on fresh start | HALT — "Use `/dl-feature resume` or delete plan" |
 | E04 | User rejects PRD | Revise and re-present |
 | E05 | User rejects slices | Adjust and re-present |

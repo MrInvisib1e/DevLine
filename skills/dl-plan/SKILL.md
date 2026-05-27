@@ -1,3 +1,10 @@
+---
+name: devline-plan
+description: Brainstorm, research, and produce an implementation plan before writing code
+requires: []
+triggers_on_complete: []
+---
+
 # /dl-plan — Brainstorm → Research → Plan
 
 Turn an idea or requirement into a fully formed implementation plan. Combines brainstorming, research, and planning into one flow.
@@ -50,16 +57,27 @@ Maximum 4 questions. Stop when you have enough to propose approaches.
 
 ### 1.3 Propose 2-3 approaches
 
-Present with trade-offs and your recommendation. Lead with recommended option. Be concrete — name the files and patterns involved.
+Present 2-3 approaches per the rules below:
+
+| Rule | What it means |
+|------|---------------|
+| Lead with recommended | First option is the recommendation; others are alternatives |
+| Concrete | Name actual files and patterns, not abstract descriptions |
+| Trade-offs explicit | Each option lists its main upside AND main downside |
+| DEFAULT | Recommend the simplest option that meets all stated constraints |
 
 ### 1.4 Present design sections
 
-Scale to complexity. Ask for approval after each section. Sections to cover:
-- Architecture: how it fits into existing system
-- Components: what files change
-- Data flow: how data moves
-- Error handling: failure modes
-- Testing: how it will be verified
+Ask for approval after each section. Scale section depth to feature complexity.
+
+| Section | What to cover |
+|---------|--------------|
+| Architecture | How this fits into the existing system |
+| Components | Which files change and what each is responsible for |
+| Data flow | How data moves between components |
+| Error handling | Failure modes and recovery |
+| Testing | How the change will be verified |
+| DEFAULT | Skip sections that don't apply to the current scope |
 
 ### 1.5 Write spec document (T3 Gate)
 

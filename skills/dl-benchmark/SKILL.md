@@ -1,3 +1,10 @@
+---
+name: devline-benchmark
+description: A/B test a Devline skill against falsifiable assertions to measure effectiveness
+requires: []
+triggers_on_complete: []
+---
+
 # dl-benchmark
 
 A/B test any Devline skill against falsifiable assertions to measure its effectiveness.

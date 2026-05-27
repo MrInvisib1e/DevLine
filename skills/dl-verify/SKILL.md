@@ -1,3 +1,10 @@
+---
+name: devline-verify
+description: Run verification commands before claiming work complete; evidence before claims
+requires: []
+triggers_on_complete: []
+---
+
 # /dl-verify — Pre-Completion Verification
 
 Run verification commands before claiming any work is done. Evidence before claims.

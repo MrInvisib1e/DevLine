@@ -154,6 +154,44 @@ Print: "[Devline] Quick-mode PRD: inferred [Goal / Scope / Out of scope / Edge c
 
 ---
 
+### Existing Project — Ultra Mode (ULTRA_MODE=true)
+
+Triggered by the **Trivial-Work Classifier** in `SKILL.md`. The user did not type a mode flag; the description was classified as trivial (typo, copy change, rename, CSS-only, etc.).
+
+Ask only **one** question:
+
+1. **Acceptance criteria:**
+   ```dl:choice
+   question: What does "done" look like for this change? (select all that apply)
+   multiple: true
+   options:
+     - label: Text/visual change matches the description
+       description: The literal change is applied where described
+     - label: No regressions elsewhere
+       description: Existing behavior in adjacent code/UI is unchanged
+     - label: Tests still pass
+       description: Existing test suite remains green
+   ```
+
+Generate the PRD from the description + this answer. Present for approval.
+
+**Ultra-mode inference rules (T2 Inform — label all inferred fields):**
+
+| Field | Inference rule |
+|-------|---------------|
+| Actor | Assume `Authenticated user` unless the description names a different actor |
+| Goal | Derive from feature description verbatim |
+| Scope | Assume the literal change described, nothing more |
+| Out of scope | Assume: refactors, adjacent improvements, tests for unrelated code, dependency changes |
+| Edge cases | None — straightforward change |
+| DEFAULT | State assumption explicitly in the PRD |
+
+**Phase routing:** After PRD approval, **skip Phase 1 (Domain)** and proceed directly to Phase 2 with a single auto-generated slice. — because trivial changes have no domain analysis to do; forcing Phase 1 wastes a round-trip.
+
+Print: "[Devline] Ultra-mode PRD: inferred all fields except acceptance. Skipping Phase 1 (Domain). Review and correct if anything is wrong."
+
+---
+
 ### Greenfield Project Mode
 
 When building from scratch with no existing stack or architecture, the PRD needs to be more expansive.

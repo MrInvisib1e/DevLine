@@ -1,3 +1,12 @@
+---
+name: devline-review
+description: Convention-driven code review of diffs against project memory
+requires: []
+requires_if:
+  dl-sync: memory_stale
+triggers_on_complete: []
+---
+
 # /dl-review — Convention-Driven Code Review
 
 Review diffs against project conventions stored in memory. Every finding cites a specific convention or graph evidence — no opinions.
@@ -17,9 +26,8 @@ Run checks in severity order: BLOCKING first. Do not proceed to lower-severity c
 
 ## Pre-flight (T1 Silent)
 
-1. Check `.devline/` exists — if not: run in degraded mode (skip convention checks)
-2. Check memory staleness: compare `config.json last_synced` vs `git rev-parse HEAD`
-   - If stale: run `/dl-sync` (T1 Silent)
+1. Check `.devline/` exists — if not: run in degraded mode (skip convention checks). — because review of a non-Devline project is still useful with reduced rigor; full halt would block ad-hoc reviews.
+2. **Memory freshness:** Apply the Pre-Flight Staleness Check defined in `skills/_shared.md`.
 3. Confirm base branch: `git merge-base HEAD main` — default is `main` unless config specifies otherwise
 
 ---
@@ -31,6 +39,8 @@ Run checks in severity order: BLOCKING first. Do not proceed to lower-severity c
    - If >30 files: read top 30 by node connectivity (run `dl-explain --rank --budget 30` and cross-reference with changed files)
 3. For each changed file: `dl-explain --node <file>` → collect symbol names + inbound/outbound edges
 4. Run `dl-explain --impact` → detect_changes blast radius for current diff
+
+CHECKPOINT: "[Devline] dl-review Phase 1 done: context loaded"
 
 ---
 

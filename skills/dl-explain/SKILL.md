@@ -1,7 +1,9 @@
 ---
 name: devline-explain
 description: Use when a developer needs to understand what a feature, file, or module does and why it exists, grounded in actual source files.
-requires: [dl-sync]
+requires: []
+requires_if:
+  dl-sync: memory_stale
 triggers_on_complete: []
 ---
 
@@ -25,13 +27,8 @@ EXPLAIN ONLY. This skill never writes, modifies, or suggests code changes.
 
 Run: `dl-log skill_start --skill dl-explain 2>/dev/null || true`
 
-1. Check `.devline/` exists — if not: HALT — "Run `/dl-init` first."
-2. Check memory staleness:
-   ```bash
-   LAST=$(jq -r '.last_synced // ""' .devline/config.json 2>/dev/null)
-   HEAD=$(git rev-parse HEAD)
-   ```
-   If `LAST != HEAD`: run `/dl-sync`. T2 Inform: "[Devline] Memory was stale — synced."
+1. Check `.devline/` exists — if not: `HALT. Print exactly: "Run /dl-init first to initialize Devline."`
+2. **Memory freshness:** Apply the Pre-Flight Staleness Check defined in `skills/_shared.md`.
 
 ---
 
@@ -197,7 +194,7 @@ Run: `dl-log skill_end --skill dl-explain 2>/dev/null || true`
 
 | Code | Trigger | Action |
 |------|---------|--------|
-| E01 | `.devline/` missing | HALT — "Run `/dl-init` first." |
+| E01 | `.devline/` missing | `HALT. Print exactly: "Run /dl-init first to initialize Devline."` |
 | E13 | `dl-explain` binary fails | T2 Warn, fall back to grep-based file search |
 | E-NF | No files found for query | Print exactly: "Couldn't find anything related to '<query>' in this codebase." |
 | E-MEM | `memory.md` missing | T2 Warn, proceed with code-only analysis |

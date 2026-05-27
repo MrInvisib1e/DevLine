@@ -27,7 +27,7 @@ Use when: irreversible, high-stakes, genuinely ambiguous, or the action permanen
 changes something the user owns (memory write, merge, commit).
 Format: present the decision clearly, offer concrete options or Y/N. Always wait.
 
-> **T3 gates use the Devline Interaction Protocol.** When presenting choices, follow `skills/_interaction-protocol.md`: use `mcp_Question` if available, otherwise render `[A] [B] [C]` text format.
+> **T3 gates use the Devline Interaction Protocol.** When presenting choices, follow `skills/_interaction-protocol.md`: use `AskUserQuestion` if available, otherwise render `[A] [B] [C]` text format.
 
 ## Classification Table
 
@@ -87,7 +87,8 @@ Session logs are stored in `.devline/sessions/session.jsonl` (one JSON object pe
 ## Skill Chaining
 
 Each skill declares its dependencies in YAML frontmatter:
-- `requires:` — skills that MUST run before this skill
+- `requires:` — skills that MUST run before this skill (unconditional)
+- `requires_if:` — skills that MUST run only when a runtime condition holds. See [Conditional Dependencies](#conditional-dependencies-requires_if) below.
 - `triggers_on_complete:` — skills that SHOULD run after this skill
 
 The AI reads frontmatter at skill start and announces the chain.
@@ -234,3 +235,67 @@ Memory is synced automatically at these points:
 | Stale memory detected | Pre-flight in dl-fix, dl-feature | No (auto-sync) |
 
 Skills SHOULD NOT call `dl-init --write-memory` directly except in Phase 6 completion. Trust the hooks.
+
+## Pre-Flight Staleness Check
+
+Canonical definition. Skills that need a fresh memory before proceeding reference this section instead of inlining the bash. — because four skills previously duplicated this block with wording drift; one source of truth prevents the drift.
+
+```bash
+LAST=$(jq -r '.last_synced // ""' .devline/config.json 2>/dev/null)
+HEAD=$(git rev-parse HEAD)
+if [ "$LAST" != "$HEAD" ]; then
+  # stale — run dl-sync (T1 Silent), then T2 Inform on success
+  /dl-sync
+fi
+```
+
+Both `last_synced` and HEAD are git commit SHAs. Stale = they do not match exactly. — because without an explicit comparison, "if stale" is ambiguous and the model may rationalize "close enough" and skip the sync.
+
+| Outcome | Tier | Output |
+|---------|------|--------|
+| `LAST == HEAD` | T1 Silent | none |
+| `LAST != HEAD`, sync succeeds | T2 Inform | `[Devline] Memory was stale — synced to {HEAD}` |
+| sync fails (exit ≠ 0) | T2 Inform | `[Devline] dl-sync failed (exit {N}) — proceeding with stale memory` |
+| DEFAULT | T1 Silent | none |
+
+## Conditional Dependencies (`requires_if:`)
+
+Frontmatter may declare `requires_if:` for dependencies that should run only when a runtime condition holds.
+
+```yaml
+requires: []
+requires_if:
+  dl-sync: memory_stale
+```
+
+| Condition | Meaning |
+|-----------|---------|
+| `memory_stale` | `config.json.last_synced != git rev-parse HEAD` |
+| DEFAULT | Treat as unconditional `requires:` |
+
+`requires:` is for unconditional dependencies (always run). `requires_if:` is for conditional ones (run only when the condition evaluates true at skill start). — because declaring conditional deps in `requires:` overstates the contract and causes future tooling that reads the chain graph to force-run skills that the runtime would skip.
+
+## Auto-Classification
+
+Skills MAY silently downgrade the depth of user interaction (number of questions, phases run) based on signals in the user's input. Auto-classification is T1 Silent for the detection itself; the resulting downgrade is announced with a T2 Inform so the user can interrupt if misclassified.
+
+| Element | Rule |
+|---------|------|
+| Detection | T1 Silent — pattern-match against description (regex, length, file-pattern hints) |
+| Downgrade announcement | T2 Inform: `[Devline] Auto-classified as {label} — using {mode}.` |
+| User override | Re-running with explicit mode flag (e.g. `/dl-feature quick …`) bypasses auto-classification |
+| DEFAULT | No downgrade; use full mode |
+
+— because forcing the user to type a mode flag for obviously-trivial work creates friction; silent classification with a visible inform line preserves correction-ability without ceremony.
+
+## Scope Fence Verbs
+
+`<scope>` blocks declare what an agent is permitted to do. Two legal verbs:
+
+| Verb | Meaning | Example |
+|------|---------|---------|
+| `EDIT:` | Permitted to read AND modify the listed files | `<scope>EDIT: src/auth/*.ts. DO NOT: refactor, add deps</scope>` |
+| `READ:` | Permitted to read only — no writes | `<scope>READ: src/. DO NOT: edit, write any file</scope>` |
+| DEFAULT | Assume `READ:` if unspecified |
+
+— because read-only analysis skills and write-capable execution skills both need scope fences, but conflating the verbs hides the read-vs-write distinction that matters for safety.

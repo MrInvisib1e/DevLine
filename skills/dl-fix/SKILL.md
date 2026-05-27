@@ -1,7 +1,9 @@
 ---
 name: devline-fix
 description: Hypothesis-driven bug fixing with 4-phase investigation
-requires: [dl-sync]
+requires: []
+requires_if:
+  dl-sync: memory_stale
 triggers_on_complete: [dl-verify]
 ---
 
@@ -28,13 +30,8 @@ NO FIX WITHOUT A FAILING TEST FIRST (TDD).
 
 ## Pre-Flight (T1 Silent)
 
-1. Check `.devline/` exists — if not: HALT — "Run `/dl-init` first."
-2. Check memory staleness:
-   ```bash
-   LAST=$(jq -r '.last_synced // ""' .devline/config.json 2>/dev/null)
-   HEAD=$(git rev-parse HEAD)
-   ```
-   If `LAST != HEAD`: run `/dl-sync` first. T2 Inform: "Memory was stale — synced."
+1. Check `.devline/` exists — if not: `HALT. Print exactly: "Run /dl-init first to initialize Devline."`
+2. **Memory freshness:** Apply the Pre-Flight Staleness Check defined in `skills/_shared.md`.
 
 ---
 
@@ -248,7 +245,7 @@ T2 Inform: "Fix applied. Run `/dl-verify` to confirm before claiming done."
 
 | Code | What happened | Why | How to fix |
 |------|--------------|-----|------------|
-| E01 | `.devline/` directory is missing | `dl-init` has not been run in this project | HALT. Print exactly: "Run `/dl-init` first to initialize Devline." |
+| E01 | `.devline/` directory is missing | `dl-init` has not been run in this project | `HALT. Print exactly: "Run /dl-init first to initialize Devline."` |
 | E02 | `dl-explain` exited with a non-zero code | Graph query failed — symbol not found or graph not built | T2 Inform: "[Devline] Graph query failed — proceeding with limited context." Continue with manual file inspection. |
 | E03 | Test passes on first run before any fix is applied | The hypothesis is wrong — the test does not actually cover the bug | T2 Inform: "[Devline] Wrong hypothesis — test passes without fix. Return to Phase 1 and form a new hypothesis." |
 | E04 | 3 fix cycles exhausted with no passing result | The issue is likely architectural, not a local code bug | T3 Gate — run architectural escalation (Phase 4.5). Present all 3 hypotheses + evidence. |

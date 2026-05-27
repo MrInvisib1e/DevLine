@@ -1,3 +1,10 @@
+---
+name: devline-init
+description: Initialize Devline memory for a project or orchestrator workspace
+requires: []
+triggers_on_complete: []
+---
+
 # /dl-init — Initialize Devline
 
 Initialize Devline memory for the current project (or workspace in orchestrator mode).
@@ -128,6 +135,6 @@ Memory is regenerated automatically on commit. To force refresh: `/dl-sync`
 
 | Code | Trigger | Action |
 |------|---------|--------|
-| E01 | Not inside a git repository (non-orchestrator mode) | HALT — "dl-init requires a git repository" |
-| E02 | codebase-memory-mcp not found | HALT — "Run `dl-install --mcp` first" |
-| E03 | Indexing fails | HALT — "codebase-memory-mcp indexing failed. Check if server is running." |
+| E01 | Not inside a git repository (non-orchestrator mode) | `HALT. Print exactly: "dl-init requires a git repository."` |
+| E02 | codebase-memory-mcp not found | `HALT. Print exactly: "Run dl-install --mcp first."` |
+| E03 | Indexing fails | `HALT. Print exactly: "codebase-memory-mcp indexing failed. Check if server is running."` |

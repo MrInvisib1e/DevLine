@@ -1,3 +1,10 @@
+---
+name: devline-sync
+description: Regenerate Devline memory when stale; idempotent and safe to call any time
+requires: []
+triggers_on_complete: []
+---
+
 # /dl-sync — Regenerate Memory
 
 Check if memory is stale and regenerate if needed. Called automatically by post-commit hook. Safe to call manually at any time.
@@ -23,7 +30,7 @@ HEAD=$(git rev-parse HEAD 2>/dev/null)
 |-----------|--------|
 | `LAST == HEAD` | T1 Silent exit — memory is current |
 | `LAST != HEAD` | Proceed to Step 2 |
-| `.devline/config.json` missing | HALT — "Run `/dl-init` first" |
+| `.devline/config.json` missing | `HALT. Print exactly: "Run /dl-init first to initialize Devline."` |
 | DEFAULT | Proceed to Step 2 |
 
 ### Step 2 — Regenerate (T2 Inform)
