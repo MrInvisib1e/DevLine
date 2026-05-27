@@ -16,6 +16,7 @@ Load any Devline skill when relevant by referencing its path:
 | `/dl-sync` | `~/.devline/skills/dl-sync/SKILL.md` |
 | `/dl-verify` | `~/.devline/skills/dl-verify/SKILL.md` |
 | `/dl-benchmark` | `~/.devline/skills/dl-benchmark/SKILL.md` |
+| `/dl-explain <query>` | `~/.devline/skills/dl-explain/SKILL.md` |
 
 Shell scripts are in `~/.devline/bin/` — ensure that directory is on your PATH.
 
