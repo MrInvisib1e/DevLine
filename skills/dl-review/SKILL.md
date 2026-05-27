@@ -35,10 +35,11 @@ Run checks in severity order: BLOCKING first. Do not proceed to lower-severity c
 ## Phase 1 — Context Loading (T1 Silent)
 
 1. Read `.devline/memory.md` (architecture + conventions)
-2. Read full diff: `git diff <base>...HEAD`
+2. Read `.devline/decisions.md` if present — index by file/module path. Findings about a file/module that match a prior `Override:` entry MUST NOT be re-flagged unless the diff materially changes the context. — because re-flagging settled questions burns user trust faster than missing a real issue.
+3. Read full diff: `git diff <base>...HEAD`
    - If >30 files: read top 30 by node connectivity (run `dl-explain --rank --budget 30` and cross-reference with changed files)
-3. For each changed file: `dl-explain --node <file>` → collect symbol names + inbound/outbound edges
-4. Run `dl-explain --impact` → detect_changes blast radius for current diff
+4. For each changed file: `dl-explain --node <file>` → collect symbol names + inbound/outbound edges
+5. Run `dl-explain --impact` → detect_changes blast radius for current diff
 
 CHECKPOINT: "[Devline] dl-review Phase 1 done: context loaded"
 
@@ -61,9 +62,24 @@ CHECKPOINT: "[Devline] dl-review Phase 1.5 done: PRD criteria checked"
 
 ---
 
-## Phase 2 — Convention Analysis
+## Phase 2 — Convention Analysis (Parallel per-check Tasks)
 
-Apply the following checks in severity order (BLOCKING → WARNING → NOTE). **Only flag if the relevant convention exists in memory.md or graph evidence is conclusive.** Never flag based on opinion.
+Each check below runs as its **own subagent Task**, dispatched in parallel from a single message (one `Task` call per active check). The orchestrator collects all reports, then synthesizes the verdict in Phase 3. — because monolithic review lets later checks crowd earlier findings out of context and serialises work that has no real ordering dependency; per-check Tasks give each rule its own bounded context window and let four checks finish in the wall-clock time of one.
+
+**Dispatch contract per check Task:**
+
+| Slot | Source |
+|------|--------|
+| `subagent_type` | `general-purpose` |
+| `description` | `dl-review: <check-name>` (≤7 words) |
+| `prompt` | Combine: (a) the single check's row from the table below, (b) full diff `git diff <base>...HEAD` (or top-30 subset from Phase 1), (c) the relevant excerpt of `memory.md` for that convention, (d) any matching `decisions.md` overrides for the changed files. |
+| `output contract` | Return ONLY a JSON array: `[{severity, file, line, convention, finding}]` (empty array if no findings). No prose. |
+
+**Parallelism rule:** Dispatch ALL active checks (default checks + each user-defined check from `config.json.review_checks`) in a single assistant message with multiple `Task` blocks. Wait for all to return. Do NOT dispatch sequentially — that defeats the purpose.
+
+**Severity ordering applies to the synthesis in Phase 3, not the dispatch:** all checks run regardless of whether earlier ones found BLOCKING issues, because each Task has independent context — there is no wasted work and the user gets the full picture in one pass.
+
+**Only flag if the relevant convention exists in memory.md or graph evidence is conclusive.** Never flag based on opinion.
 
 ### Severity Reference
 
@@ -108,9 +124,13 @@ If `.devline/` missing (CI without init):
 
 ---
 
-## Phase 3 — Output
+## Phase 3 — Synthesis & Output
 
-Group by severity: BLOCKING → WARNING → NOTE
+Collect the JSON arrays returned by each parallel check Task. Merge into one list, then:
+
+1. **De-dup** by `(file, line, convention)` — multiple checks may flag the same line.
+2. **Filter against decisions.md** — drop any finding whose `(file, convention)` matches a prior `Override:` entry, unless the diff in this file has materially changed the conditions of the override. Log dropped overrides at T1 Silent.
+3. **Group by severity:** BLOCKING → WARNING → NOTE
 
 Each finding format:
 ```

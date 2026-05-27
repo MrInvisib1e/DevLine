@@ -58,14 +58,62 @@ options:
 
 CHECKPOINT: "[Devline] Verification complete: all commands passed"
 
-## Step 2 — Memory sync (T1)
+## Step 2 — Memory sync (T1) — incremental append, full-regen on overflow
 
-Run:
+Append a delta entry for the just-completed feature into `.devline/memory.md` between the `<!-- devline:section:recent-deltas -->` markers. If the block already has >20 entries after the append, fall through to a full regeneration (`dl-init --write-memory`) so the deltas get compacted into the canonical Architecture / Top Nodes sections on the next graph build.
+
 ```bash
-dl-init --write-memory --force
+MEMORY=.devline/memory.md
+FEATURE_SLUG=<feature-slug>
+FILES_CHANGED=$(git diff --name-only "$(git merge-base HEAD main)..HEAD" | wc -l | tr -d ' ')
+NEW_SYMBOLS=$(git diff "$(git merge-base HEAD main)..HEAD" | grep -E '^\+(export|public|class |def |func |fn )' | head -10 | sed 's/^+//' | tr '\n' ',' | sed 's/,$//')
+DATE=$(date -u +%Y-%m-%d)
+ENTRY="- ${DATE} · ${FEATURE_SLUG} · files: ${FILES_CHANGED} · new symbols: ${NEW_SYMBOLS:-none}"
+
+# Insert ENTRY before the recent-deltas close marker.
+# Python prints exactly one token to stdout: "MISSING" or "OK <count>".
+RESULT=$(python3 - "$MEMORY" "$ENTRY" << 'PYEOF'
+import re, sys
+path, entry = sys.argv[1], sys.argv[2]
+text = open(path).read()
+marker_open  = "<!-- devline:section:recent-deltas -->"
+marker_close = "<!-- devline:/section:recent-deltas -->"
+if marker_open not in text or marker_close not in text:
+    print("MISSING")
+    sys.exit(0)
+before, rest = text.split(marker_close, 1)
+new_text = before.rstrip() + "\n" + entry + "\n" + marker_close + rest
+open(path, "w").write(new_text)
+block = re.search(re.escape(marker_open) + r"(.*?)" + re.escape(marker_close), new_text, re.DOTALL).group(1)
+n = sum(1 for line in block.splitlines() if line.startswith("- "))
+print(f"OK {n}")
+PYEOF
+)
+
+case "$RESULT" in
+  MISSING)
+    dl-init --write-memory
+    T2_REASON="full regen (markers absent — rebuilding canonical structure)"
+    ;;
+  OK\ *)
+    COUNT=${RESULT#OK }
+    if [ "$COUNT" -gt 20 ]; then
+      dl-init --write-memory
+      T2_REASON="full regen (delta block compacted at ${COUNT} entries)"
+    else
+      T2_REASON="incremental append (${COUNT} deltas pending compaction)"
+    fi
+    ;;
+  *)
+    dl-init --write-memory
+    T2_REASON="full regen (unexpected helper output — defensive fallback)"
+    ;;
+esac
 ```
 
-T2 Inform: `[Devline] Memory synced: <sha>`
+T2 Inform: `[Devline] Memory synced: <sha> (${T2_REASON})`
+
+— because regenerating memory.md from a graph rebuild on every feature is expensive (the graph walk dominates) and unnecessary when the delta is one feature; an append-mostly model with periodic compaction matches how the memory is actually read.
 
 ## Step 3 — Archive plan (T1)
 
@@ -142,13 +190,16 @@ CHECKPOINT: "[Devline] Phase 6 complete: memory synced, plan archived, feature c
 
 ### Artifact Cleanup (T1 Silent)
 
-Clean up stale session artifacts:
+Clean up stale session artifacts and refresh the session index:
 ```bash
 # Remove session logs older than 30 days
 find .devline/sessions/ -name "*.jsonl" -mtime +30 -delete 2>/dev/null || true
 
 # Remove archived plans older than 90 days
 find .devline/plans/archive/ -maxdepth 1 -mtime +90 -type d -exec rm -rf {} + 2>/dev/null || true
+
+# Rebuild sessions/index.json so the just-completed feature is discoverable
+dl-log-index 2>/dev/null || true
 ```
 
 T1 Silent — cleanup only.

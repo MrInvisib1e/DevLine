@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# dl-log-index — Rebuild .devline/sessions/index.json from all session*.jsonl files.
+# Index shape: { "<feature-slug>": { "start_ts", "end_ts", "files": [{path, line_start, line_end, event_count}] } }
+# Called from /dl-sync and Phase 6 of /dl-feature. Idempotent; safe to run any time.
+
+set -euo pipefail
+
+DEVLINE_DIR="$(git rev-parse --show-toplevel 2>/dev/null)/.devline"
+[ -d "$DEVLINE_DIR" ] || { echo "dl-log-index: .devline/ not found" >&2; exit 1; }
+
+SESSION_DIR="$DEVLINE_DIR/sessions"
+[ -d "$SESSION_DIR" ] || { echo "dl-log-index: no sessions to index" >&2; exit 0; }
+
+INDEX="$SESSION_DIR/index.json"
+
+python3 - "$SESSION_DIR" "$INDEX" << 'PYEOF'
+import json, os, sys, glob
+
+session_dir, index_path = sys.argv[1], sys.argv[2]
+files = sorted(glob.glob(os.path.join(session_dir, "session*.jsonl")))
+
+# Bucket events by feature
+index = {}  # feature -> { start_ts, end_ts, files: { path -> {line_start, line_end, event_count} } }
+
+for path in files:
+    rel = os.path.relpath(path, session_dir)
+    with open(path) as f:
+        for lineno, raw in enumerate(f, start=1):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                ev = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            feature = ev.get("feature")
+            if not feature:
+                continue
+            ts = ev.get("ts", "")
+            bucket = index.setdefault(feature, {"start_ts": ts, "end_ts": ts, "files": {}})
+            if ts and ts < bucket["start_ts"]:
+                bucket["start_ts"] = ts
+            if ts and ts > bucket["end_ts"]:
+                bucket["end_ts"] = ts
+            file_entry = bucket["files"].setdefault(rel, {"line_start": lineno, "line_end": lineno, "event_count": 0})
+            if lineno < file_entry["line_start"]:
+                file_entry["line_start"] = lineno
+            if lineno > file_entry["line_end"]:
+                file_entry["line_end"] = lineno
+            file_entry["event_count"] += 1
+
+# Flatten files dict to list for stable JSON
+for feature, bucket in index.items():
+    bucket["files"] = [{"path": p, **v} for p, v in sorted(bucket["files"].items())]
+
+with open(index_path, "w") as f:
+    json.dump(index, f, indent=2, sort_keys=True)
+
+print(f"[dl-log-index] indexed {len(index)} feature(s) across {len(files)} session file(s)", file=sys.stderr)
+PYEOF

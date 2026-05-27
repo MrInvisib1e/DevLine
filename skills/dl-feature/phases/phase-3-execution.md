@@ -86,17 +86,30 @@ Update `slice-N.json`:
 
 #### Step 4: Dispatch Test Agent (unless skip criteria met)
 
-**Skip if ALL of:**
-- Quick mode AND ≤2 implementation steps AND test_cmd already passed AND no new user-facing behavior
+Single decision table — evaluate top to bottom; the first row whose condition matches decides. **Dispatch rows always precede skip rows** so a single dispatch trigger overrides any number of skip indicators.
 
-**Always dispatch if any of:**
-- New user-facing behavior (any new UI or API)
-- >3 files modified
-- No existing e2e coverage for this behavior
+| # | Condition (all clauses AND'd) | Action | `test_skip_reason` |
+|---|------------------------------|--------|---------------------|
+| D1 | `new_user_facing_behavior == true` | DISPATCH | — |
+| D2 | `files_changed > 3` | DISPATCH | — |
+| D3 | `no_existing_e2e_coverage_for_touched_paths == true` | DISPATCH | — |
+| D4 | `test_cmd_already_passed == false` | DISPATCH | — |
+| S1 | `QUICK_MODE == true` AND `impl_steps <= 2` AND only-renames-or-formatting | SKIP | `quick_mode_trivial` |
+| S2 | only files matched by `^(.*\.md\|docs/)` | SKIP | `docs_only` |
+| S3 | only files matched by `^(\.github/\|ci/\|.*\.lock\|.*\.toml\|package\.json)` AND test_cmd passed | SKIP | `infra_only` |
+| S4 | rename-only diff (`git diff -M --summary` shows only `rename`) AND test_cmd passed | SKIP | `pure_refactor` |
+| DEFAULT | — | DISPATCH | — |
 
-If skipping: update `slice-N.json` → `test_agent_skipped: true`, `test_agent_skip_reason: "..."`
+— because two conflicting blocks ("skip if ALL" vs "always dispatch if ANY") had no precedence resolver, so a quick-mode 4-file refactor landed in undefined behavior and skipped tests roughly half the time.
 
-If dispatching: combine `agents/test.md` + slice mission + domain test patterns. Wait for Test Agent Report.
+**Definition: `new_user_facing_behavior`** — true if the diff introduces any of: a new exported symbol from a public module, a new HTTP route, a new CLI subcommand or flag, a new UI component file, or a new public class. **Refactors, renames, internal helpers, and comment changes do NOT count.** Detection: union of `git diff --diff-filter=A --name-only` with grep of additions for `^(export|public|app\.(get\|post\|put\|delete)|router\.|@Route|class .* {)` — if any match, true.
+
+**On SKIP** — write to `slice-N.json`:
+- `test_agent_skipped: true`
+- `test_skip_reason: <enum value from table>` (must match one of: `quick_mode_trivial`, `pure_refactor`, `infra_only`, `docs_only`)
+- `test_skip_evidence: "<bash command + output that justified the skip>"`
+
+**On DISPATCH** — combine `agents/test.md` + slice mission + domain test patterns. Wait for Test Agent Report.
 
 Update `slice-N.json`:
 - `test_summary: {...}`
@@ -165,45 +178,140 @@ Retry dispatch — combine:
 - `agents/implementation.md` — role
 - `slice-N-<slug>.md` — original mission (DO NOT modify)
 - Domain context from `plan.md`
-- **Prior Work section** (injected at top of mission context):
+- **Prior Work section** — built programmatically from `slice-N.json`, NOT freehand.
 
+**Programmatic Prior Work assembly (MANDATORY before retry dispatch):**
+
+Read `slice-N.json` and extract the previous cycle's fields. Do NOT skip this step or paraphrase from memory — the JSON is the source of truth, and every retry that ignored it has repeated the prior cycle's mistake.
+
+```bash
+SLICE=.devline/plans/active/slice-N-<slug>.json
+PRIOR_CYCLE=$(jq -r '.cycle' "$SLICE")
+jq -r --arg c "$PRIOR_CYCLE" '
+  "## Prior Work (Cycle " + $c + ")\n\n" +
+  "**What was implemented:**\n" + (.implementation_summary // "(none recorded)") + "\n\n" +
+  "**Files changed:**\n" + ((.files_changed // []) | map("- " + .) | join("\n")) + "\n\n" +
+  "**Test result:** " + (.test_result // "n/a") + "\n\n" +
+  "**Review verdict:** FAIL\n\n" +
+  "**Required changes (from review_findings.required_changes):**\n" +
+  ((.review_findings.required_changes // []) | to_entries | map("\(.key+1). \(.value)") | join("\n")) + "\n\n" +
+  "**Open concerns from prior cycle:**\n" + ((.concerns // "(none)")) + "\n\n" +
+  "Read the existing files first. Fix ONLY the listed issues. Do NOT re-implement from scratch."
+' "$SLICE"
 ```
-## Prior Work (Cycle N)
 
-**What was implemented:**
-[implementation_summary from previous cycle]
+Inject the output verbatim at the top of the mission context. If any required field is missing from the JSON, T2 Inform: `[Devline] Slice <name> cycle <N> JSON missing field <X> — retry quality degraded.` and continue — do not invent the value.
 
-**Files changed:**
-- path/to/file.cs — [brief description]
-
-**Test result:** PASS (N/N) | FAIL (N/N)
-
-**Review verdict:** FAIL
-
-**Required changes:**
-1. [specific fix]
-2. [specific fix]
-
-Read the existing files first. Fix ONLY the listed issues. Do NOT re-implement from scratch.
-```
+— because previous cycles wrote `concerns`, `review_findings`, `implementation_summary` to the JSON but the retry prompt was assembled by the model from conversation memory, which silently dropped fields. A `jq`-built block is deterministic.
 
 After retry, return to Step 3.
+
+#### Override Logging
+
+If, during retry, the orchestrator or user **overrides** a review finding (decides not to fix it and proceeds), append a Decisions Journal entry per `_shared.md` → Decisions Journal:
+
+```markdown
+## <YYYY-MM-DD> — Override: <short finding title>
+
+- **Context:** <feature-slug> · slice-<N>-<slug> · cycle <N>
+- **Decision:** Ship despite finding — <one-sentence summary>
+- **Rationale:** <reason — e.g. "false positive: rule applies to public API, this is internal">
+- **Scope:** <file:line from the finding>
+```
+
+— because overrides are the most-forgotten institutional memory in any project; future `/dl-review` runs will re-flag the same finding unless the override is recorded.
 
 #### Merge Parallel Slices (after each parallel batch)
 
 After all slices in a parallel batch complete (done or stuck):
 
-1. For each slice with a worktree:
-   ```bash
-   # Merge slice branch into feature branch
-   git checkout feature/<feature-slug>
-   git merge feature/<feature-slug>-slice-N
-   ```
-2. If merge conflicts: run `dl-resolve` and ask user to resolve, then retry merge
-3. Clean up worktrees:
-   ```bash
-   dl-workspace worktree-remove feature/<feature-slug>-slice-N
-   ```
+**Step A — Record batch baseline (mandatory before any merge):**
+
+```bash
+git checkout feature/<feature-slug>
+BATCH_BASELINE_SHA=$(git rev-parse HEAD)
+# Persist so we can roll back if a later merge corrupts mid-batch
+echo "$BATCH_BASELINE_SHA" > .devline/plans/active/.batch-baseline
+```
+
+**Step B — Pre-merge dry-run (mandatory — do NOT skip):**
+
+For each slice with `status: "done"` in this batch, run a dry-run merge against a throwaway branch built from the baseline:
+
+```bash
+git checkout -B __devline-merge-probe "$BATCH_BASELINE_SHA"
+for SLICE_BRANCH in <list of done slice branches>; do
+  if git merge --no-commit --no-ff "$SLICE_BRANCH" >/dev/null 2>&1; then
+    git merge --abort 2>/dev/null || true
+    jq '.merge_probe = "clean"' "<slice-json>" > "<slice-json>.tmp" && mv "<slice-json>.tmp" "<slice-json>"
+  else
+    git merge --abort 2>/dev/null || true
+    jq '.merge_probe = "conflict"' "<slice-json>" > "<slice-json>.tmp" && mv "<slice-json>.tmp" "<slice-json>"
+  fi
+done
+git checkout feature/<feature-slug>
+git branch -D __devline-merge-probe
+```
+
+Each slice JSON now has `merge_probe ∈ {clean, conflict}`. — because doing the probe up front means a conflict is detected without leaving the real feature branch in a half-merged state.
+
+**Step C — Decision table on probe outcomes:**
+
+| Probe result across batch | Action |
+|---------------------------|--------|
+| All `clean` | Proceed to Step D (real merge in dependency order). |
+| Some `clean`, some `conflict` | Present the `dl:choice` gate below. |
+| All `conflict` | Present the `dl:choice` gate below with option A disabled. |
+
+```dl:choice
+question: {N} slice(s) in this batch conflict on merge: {list}. {M} merge clean: {list}. How do you want to proceed?
+options:
+  - label: Merge clean slices now, serialize conflicting ones
+    description: Real-merge the clean slices in dependency order; mark conflicting slices for re-execution in the next batch with merge_result="serialized_after_conflict"
+  - label: Abort this batch
+    description: Skip all merges; leave the feature branch at baseline; mark all slices in batch with merge_result="batch_aborted"; T3 escalate
+  - label: I'll resolve manually
+    description: Pause execution; print the conflicting paths from each probe; wait for the user to merge and resolve, then resume
+```
+
+**Step D — Real merge (only for slices selected by the gate):**
+
+```bash
+for SLICE_BRANCH in <selected clean branches in dependency order>; do
+  if git merge --no-ff "$SLICE_BRANCH" -m "merge $SLICE_BRANCH"; then
+    jq '.merge_result = "merged"' "<slice-json>" > "<slice-json>.tmp" && mv "<slice-json>.tmp" "<slice-json>"
+  else
+    # Unexpected mid-merge failure (probe was clean but real merge broke — e.g. hook failure)
+    git merge --abort 2>/dev/null || true
+    git reset --hard "$BATCH_BASELINE_SHA"   # Roll the whole batch back to baseline
+    jq '.merge_result = "rolled_back"' "<slice-json>" > "<slice-json>.tmp" && mv "<slice-json>.tmp" "<slice-json>"
+    # Mark every already-merged slice in this batch the same way (we just undid them)
+    # Then T3 escalate via stuck-slice gate
+    break
+  fi
+done
+rm -f .devline/plans/active/.batch-baseline
+```
+
+— because a hook-failure mid-batch left the feature branch with N-1 merges undone in the user's mental model but still present in git; an explicit `reset --hard` to the baseline SHA restores a coherent state, with the cost being one rerun of the already-tested slice merges (cheap, deterministic).
+
+**Step E — Clean up worktrees (only for slices with `merge_result == "merged"`):**
+
+```bash
+dl-workspace worktree-remove feature/<feature-slug>-slice-N
+```
+
+Worktrees for serialized / rolled-back slices stay so the next batch can reuse them.
+
+**`merge_result` enum (written to every slice JSON in the batch):**
+
+| Value | Meaning |
+|-------|---------|
+| `merged` | Real merge succeeded, worktree removed |
+| `serialized_after_conflict` | Probe conflicted; re-queue in next batch |
+| `batch_aborted` | User chose abort; nothing was merged |
+| `manual_pending` | User chose manual resolve; orchestrator paused |
+| `rolled_back` | Real merge failed unexpectedly; batch reset to baseline |
 
 #### Stuck Slice Handling
 
@@ -274,6 +382,31 @@ After every agent response, before accepting it:
 
 Checks 1-4 are mandatory. Check 5 is soft (log warning, don't block on first occurrence).
 All checks are zero-LLM-cost (filesystem + git operations).
+
+---
+
+### Per-Agent Watchdog (applies to Steps 2, 4, 5 — Implementation, Test, Slice Review)
+
+Loop-level termination (next section) catches cycle-level runaway but does not catch a single hung Task. A hung Task hangs the entire batch — and silently, because there is no event to surface.
+
+**Contract — every agent dispatch is governed by this watchdog:**
+
+| Phase | Action |
+|-------|--------|
+| Before dispatch | Record `agent_dispatched_at` (ISO timestamp) to `slice-N.json` under the agent role key (e.g. `implementation.agent_dispatched_at`). Read `agent_timeout_ms` from `.devline/config.json` (default: 600000 = 10 min). |
+| On normal return | Record `agent_completed_at`. Compute `agent_elapsed_ms`. Log `agent_done` event via `dl-log` with `meta: {role, elapsed_ms}`. |
+| On deadline hit (no return within `agent_timeout_ms`) | (1) Log `agent_timeout` event via `dl-log` with `meta: {role, deadline_ms, cycle}`. (2) Cancel the Task. (3) See timeout policy below. |
+
+**Timeout policy:**
+
+| Timeout occurrence (per slice, per role) | Action |
+|------------------------------------------|--------|
+| 1st timeout | Increment `cycle`. Re-dispatch ONCE with a "Previous attempt timed out after {N}s — discard any partial state and start fresh" line injected at the top of the Prior Work block. |
+| 2nd timeout (same role, same slice) | Mark `slice-N.json` → `status: "stuck"`, `blocked_reason: "agent_timeout x2 ({role})"`. Do NOT consume further retry budget. T3 escalate via the stuck-slice gate (lines 222-232). |
+
+**Configuration knob:** `.devline/config.json` MAY define `agent_timeout_ms` as an integer (milliseconds). Missing/null/non-positive → use default 600000. — because a 10-min ceiling is right for typical work but agentic tasks against slow toolchains (large monorepos, slow CI) need a higher bound, and overriding via config is cheaper than per-call flags.
+
+**Why a watchdog and not just longer loop bounds:** loop-level termination only fires after the orchestrator regains control. A hung subagent never returns control. The watchdog is the only guard that bounds wall-clock per dispatch.
 
 ---
 

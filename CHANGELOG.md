@@ -4,6 +4,75 @@ All notable changes to Devline are documented here.
 
 ---
 
+## [Unreleased]
+
+### Memory & session hygiene
+
+**Incremental `memory.md` updates**
+- `bin/dl-init` now writes stable HTML-comment markers around each section (`architecture`, `top-nodes`, `recent-deltas`) and preserves any existing `recent-deltas` block on regeneration
+- `skills/dl-feature/phases/phase-6-completion.md` Step 2 rewritten: appends a one-line delta entry (date · feature · files · new symbols) instead of regenerating the full memory file on every feature completion
+- Falls back to full regen automatically when the delta block exceeds 20 entries (compaction) or when section markers are absent (recovery)
+- Phase 6 sync messages now distinguish "incremental append (N pending)" vs "full regen (...)" so users see what actually happened
+
+**Session log retention + index**
+- `bin/dl-log` upgraded: new `feature` / `slice` correlation fields (read from `DEVLINE_FEATURE` / `DEVLINE_SLICE` env vars set by the orchestrator); per-event rotation when `session.jsonl` exceeds 1000 lines (renames to `session-YYYYMMDD-HHMMSS.jsonl`)
+- New `bin/dl-log-index` script: rebuilds `.devline/sessions/index.json` mapping `feature-slug → {start_ts, end_ts, files:[{path, line_start, line_end, event_count}]}`
+- Called from `/dl-sync` Step 2.7 and Phase 6 Artifact Cleanup, so the index is always current after any sync or feature completion
+- `skills/_shared.md` Session Event Log section documents the new fields, retention behavior, and `index.json` schema
+- Two new event types: `agent_timeout` (from M3 watchdog), `config_migrated` (from Mm4 migration)
+
+### Config-driven fan-out
+
+**`review_checks` upgraded to structured objects**
+- `bin/dl-init` template seed and the in-repo `.devline/config.json` now write `review_checks` as `[{name, severity, convention, evidence_hint}]` instead of bare strings
+- Schema documented in `skills/_shared.md` field reference
+- New canonical migration helper in `_shared.md` → "Config Migration" auto-upgrades pre-0.7 configs the first time `/dl-sync` runs; idempotent; emits `config_migrated` event
+- Unblocks the per-check parallel Tasks promised by `/dl-review` Phase 2 — each Task now gets a real `convention` string instead of a one-word prompt
+
+**`/dl-plan` deep-tier research — real parallel Tasks**
+- `skills/dl-plan/SKILL.md` Phase 2 deep tier rewritten with explicit Task dispatch contract mirroring `/dl-review` Phase 2
+- New `skills/dl-plan/agents/` role files: `research-codebase.md`, `research-docs.md`, `research-coupling.md`
+- New Phase 2.5 synthesis step: merges evidence, surfaces unresolved `open_questions` as a `dl:choice` before plan generation
+- Replaces prose bullets that the orchestrator was previously executing serially
+
+### Multi-agent reliability (phase-3 execution hardening)
+
+**Per-agent watchdog**
+- New section in `skills/dl-feature/phases/phase-3-execution.md` between "Output Validation Pipeline" and "Execution Loop Termination"
+- 10-minute default deadline per agent dispatch (configurable via `config.json.agent_timeout_ms`)
+- One re-dispatch with "previous attempt timed out" injected into Prior Work; second timeout marks slice stuck with `blocked_reason: "agent_timeout x2"`
+- New slice JSON fields: `agent_dispatched_at`, `agent_completed_at`, `agent_elapsed_ms` per role
+- New `dl-log` event: `agent_timeout`
+
+**Partial-batch failure policy**
+- "Merge Parallel Slices" section rewritten: now records `BATCH_BASELINE_SHA`, runs a pre-merge probe per slice, presents a `dl:choice` on mixed-conflict outcomes, and `git reset --hard`s the entire batch to baseline on unexpected mid-merge failure
+- New slice JSON fields: `merge_probe ∈ {clean, conflict}`, `merge_result ∈ {merged, serialized_after_conflict, batch_aborted, manual_pending, rolled_back}`
+- Closes the silent half-merged state when one slice of a parallel batch conflicted while others had already merged
+
+**Test-skip criteria — single decision table**
+- Replaces conflicting "Skip if ALL" / "Always dispatch if ANY" blocks with one ordered table; dispatch rows always precede skip rows so dispatch triggers override any skip indicator
+- `new_user_facing_behavior` now has an objective definition (new exports, HTTP routes, CLI flags, UI components, public classes) with a concrete detection command
+- New slice JSON fields: `test_skip_reason` (enum: `quick_mode_trivial`, `pure_refactor`, `infra_only`, `docs_only`) and `test_skip_evidence`
+
+### New Features
+
+**Decisions Journal (`.devline/decisions.md`)**
+- Append-only institutional memory for consequential calls: PRD resolutions, scope cuts, architectural picks, reviewer overrides, stuck-slice choices
+- Canonical spec + write helper in `skills/_shared.md` → "Decisions Journal"
+- Write triggers added to `phase-0-prd.md` (on PRD approval) and `phase-3-execution.md` (on reviewer-finding override)
+- Read into `dl-plan` Phase 1.1 (skip re-litigating settled questions) and `dl-review` Phase 1/3 (auto-drop findings matching prior overrides)
+
+**Slice retry: programmatic prior-cycle assembly**
+- `phase-3-execution.md` retry loop now builds the "Prior Work" block via `jq` against `slice-N.json` instead of asking the model to reconstruct it from conversation memory
+- Eliminates the recurring bug where retry cycles silently dropped fields (`concerns`, `review_findings.required_changes`) and re-made the same mistakes
+
+**`/dl-review`: parallel per-check Tasks**
+- Phase 2 restructured to dispatch one subagent Task per active check (default checks + each `config.json.review_checks` entry) in a single message
+- Each check returns a JSON array; Phase 3 merges, de-dups, filters against decisions.md, and synthesises the verdict
+- Wall-clock review time on N-check projects approaches single-check time; each check gets its own bounded context window
+
+---
+
 ## [0.6.0] — 2026-05-17
 
 ### New Features

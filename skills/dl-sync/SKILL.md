@@ -39,6 +39,18 @@ Run: `dl-init --write-memory`
 
 Print: "Memory regenerated — last_synced=`{HEAD[:7]}`"
 
+### Step 2.5 — Config migrations (T1 Silent, T2 Inform on actual migration)
+
+Apply each migration in the registry from `skills/_shared.md` → "Config Migration". The `review_checks_v2` migration in particular upgrades pre-0.7 bare-string entries to the structured object form that `/dl-review` Phase 2 requires.
+
+Run the canonical migration helper from `_shared.md`. On `migrated` outcome: T2 Inform `[Devline] config.json migrated: review_checks upgraded to v2 (objects)`. On `noop`: T1 Silent.
+
+— because skipping this step leaves `/dl-review` Phase 2 dispatching subagents with one-word prompts, which silently hallucinate the rule. The migration is idempotent and cheap, so it runs on every sync.
+
+### Step 2.7 — Refresh session index (T1 Silent)
+
+Run: `dl-log-index` — rebuilds `.devline/sessions/index.json` from all `session*.jsonl` files. Safe to call on every sync; fast (single-pass parse). — because the index is the only way `/dl-explain` and `/dl-verify` can look up "what happened in feature X" without scanning every JSONL file.
+
 ### Step 3 — Verify (T1 Silent)
 
 Confirm `.devline/memory.md` was written (check mtime vs now). If missing: T2 Inform — "memory.md generation failed — check codebase-memory-mcp logs."

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # dl-log — Append structured events to session log
 # Usage: dl-log <event> [--skill <name>] [--phase <n>] [--step <desc>] [--tokens <n>] [--meta <json>]
-# Events are appended to .devline/sessions/session.jsonl
+# Events are appended to .devline/sessions/session.jsonl.
+# `feature` and `slice` are pulled from env (DEVLINE_FEATURE / DEVLINE_SLICE) if set.
+# When session.jsonl exceeds 1000 lines it is rotated to session-YYYYMMDD-HHMMSS.jsonl.
 
 set -euo pipefail
 
@@ -28,6 +30,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Correlation fields from environment (orchestrator sets these for the duration of a feature/slice)
+FEATURE="${DEVLINE_FEATURE:-}"
+SLICE="${DEVLINE_SLICE:-}"
+
 # Build JSON event
 TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -40,6 +46,8 @@ event = {
     'phase': int('$PHASE') if '$PHASE' else None,
     'step': '$STEP' if '$STEP' else None,
     'tokens_est': int('$TOKENS') if '$TOKENS' else None,
+    'feature': '$FEATURE' if '$FEATURE' else None,
+    'slice': '$SLICE' if '$SLICE' else None,
     'meta': json.loads(r'''$META''') if '$META' != '{}' else None
 }
 # Remove None values
@@ -47,9 +55,19 @@ event = {k: v for k, v in event.items() if v is not None}
 print(json.dumps(event))
 " >> "$SESSION_DIR/session.jsonl"
 
+# Rotation: if session.jsonl exceeds 1000 lines, move it aside and start fresh.
+LINES=$(wc -l < "$SESSION_DIR/session.jsonl" 2>/dev/null | tr -d ' ')
+if [ "${LINES:-0}" -gt 1000 ]; then
+  ROT_TS=$(date -u +"%Y%m%d-%H%M%S")
+  mv "$SESSION_DIR/session.jsonl" "$SESSION_DIR/session-$ROT_TS.jsonl"
+  : > "$SESSION_DIR/session.jsonl"
+fi
+
 # Status line on stderr
 >&2 printf '[Devline] %s' "$EVENT"
-[[ -n "$SKILL" ]] && >&2 printf ' | skill=%s' "$SKILL"
-[[ -n "$PHASE" ]] && >&2 printf ' | phase=%s' "$PHASE"
-[[ -n "$STEP" ]] && >&2 printf ' | step=%s' "$STEP"
+[[ -n "$SKILL" ]]   && >&2 printf ' | skill=%s' "$SKILL"
+[[ -n "$PHASE" ]]   && >&2 printf ' | phase=%s' "$PHASE"
+[[ -n "$STEP" ]]    && >&2 printf ' | step=%s' "$STEP"
+[[ -n "$FEATURE" ]] && >&2 printf ' | feature=%s' "$FEATURE"
+[[ -n "$SLICE" ]]   && >&2 printf ' | slice=%s' "$SLICE"
 >&2 printf '\n'

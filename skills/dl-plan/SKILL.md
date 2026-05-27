@@ -46,6 +46,13 @@ Before asking questions, assess the input:
 
 Read `.devline/memory.md`. Run `dl-explain --rank --budget 20` to identify top nodes.
 
+**Also read `.devline/decisions.md` if it exists.** Filter to entries whose `Scope:` field overlaps the modules implied by the user's task. Use prior PRD/scope/override decisions to:
+- Skip clarifying questions whose answer is already on record (don't re-litigate)
+- Surface prior `Scope cut:` entries to the user if the new task appears to re-introduce a cut item — ask before silently expanding scope
+- Reuse architectural picks (`Convention:` entries) instead of re-debating them
+
+T2 Inform on any match: `[Devline] Found N prior decisions touching this scope — applying.` — because the highest-leverage memory is the answer to a question we've already settled; without surfacing it, every plan starts from zero.
+
 ### 1.2 Ask clarifying questions (one at a time)
 
 Ask only what is needed to resolve genuine ambiguity:
@@ -114,12 +121,33 @@ Auto-detect tier from scope:
 
 Force tier: `/dl-plan --research quick|standard|deep <task>`
 
-**Deep research — parallel agents:**
-- Agent A: Search codebase for similar patterns (`dl-explain --rank`, `dl-explain <component>`)
-- Agent B: Read relevant external docs/references (API docs, schema files, config)
-- Agent C: Check `FILE_CHANGES_WITH` edges for hidden coupling (`dl-explain --node` on affected files)
+**Deep research — three parallel Tasks (single message, three `Task` calls):**
 
-**Co-change coupling:** Always run `dl-explain --node <file>` on affected files to check which files historically change together. Files with `FILE_CHANGES_WITH` edges are likely coupled — include them in the plan.
+This is the deep-tier dispatch. The three agents work on disjoint slices of the question, so the orchestrator MUST send all three in one assistant message — never sequentially. — because serializing them defeats the point of the deep tier; the wall-clock budget for deep research only fits if the three Tasks share one window.
+
+**Dispatch contract per Task:**
+
+| Slot | Value |
+|------|-------|
+| `subagent_type` | `general-purpose` |
+| `description` | `dl-plan research: <focus>` (≤7 words; one of `codebase`, `docs`, `coupling`) |
+| `prompt` | The contents of the corresponding role file (`skills/dl-plan/agents/research-{codebase,docs,coupling}.md`) + the user's task description + the relevant memory.md excerpt + (for Agent C) the orchestrator's candidate affected-files list |
+| `output contract` | Each agent returns ONLY a JSON object: `{summary, evidence: [{file, lines, note}], open_questions: [...]}`. The role file is the source of truth for the contract. |
+
+**Parallelism rule:** All three Tasks dispatched in a single message. Wait for all three. Do not gate any on the others.
+
+### 2.5 Synthesis (T1 Silent)
+
+Once all three reports return:
+
+1. **Merge evidence:** union the three `evidence` arrays, dedup by `(file, lines)`.
+2. **Aggregate open questions:** collect all `open_questions` from all three reports into one list.
+3. **Resolve before Plan Generation:** if `open_questions` is non-empty, present them as a single `dl:choice` (one question at a time if multiple are blocking). Do NOT proceed to Phase 3 with unresolved structural questions.
+4. **Write to plan-draft:** the merged evidence becomes the "Reference Pattern" + "Co-change coupling" sections of the eventual plan.md.
+
+— because three parallel agents without a synthesis step produce three disjoint reports the planner has to re-merge in conversation memory — wasting context and risking dropped findings.
+
+**Co-change coupling fallback (Standard tier only):** Run `dl-explain --node <file>` on affected files to check which files historically change together. Files with `FILE_CHANGES_WITH` edges are likely coupled — include them in the plan. (Deep tier covers this via Agent C; Standard tier still needs this lightweight pass.)
 
 ---
 

@@ -324,6 +324,19 @@ If the user requests changes: revise the PRD and re-present it. Repeat until app
 
 **On approval:** Fill in the `Approved:` timestamp in the PRD and write it to `plan.md`. — because on resume, there is no way to know if the PRD is still current without a timestamp.
 
+**On approval — also append a Decisions Journal entry** (see `_shared.md` → Decisions Journal). Build `$ENTRY` as:
+
+```markdown
+## <YYYY-MM-DD> — PRD: <feature-slug>
+
+- **Context:** <feature-slug> · <current-branch>
+- **Decision:** <one-sentence summary of the PRD's actor + goal + in-scope items>
+- **Rationale:** <out-of-scope items the user explicitly cut, with their reason if given>
+- **Scope:** <modules/files named in the PRD>
+```
+
+Then use the canonical append helper in `_shared.md` → Decisions Journal. T1 Silent — no announce. — because PRD answers are the highest-value institutional memory; without persisting them, the next feature in the same module repeats the same interrogation.
+
 ### Orchestrator Child Proposal (only when ORCHESTRATOR_MODE=true)
 
 After PRD approval, before proceeding to Phase 1:

@@ -154,7 +154,14 @@ case "$MODE" in
   "stack": $STACK,
   "last_synced": "$(git rev-parse HEAD 2>/dev/null || echo 'unknown')",
   "classifiers": [],
-  "review_checks": ["naming","test-coverage","unclassified","impact-radius","dead-code","clone-detection"],
+  "review_checks": [
+    {"name":"naming","severity":"WARNING","convention":"Symbol names follow the patterns in memory.md","evidence_hint":"grep additions for new exported symbols"},
+    {"name":"test-coverage","severity":"WARNING","convention":"Every changed source file has a corresponding test change in the diff","evidence_hint":"git diff --name-only filtered to source vs test paths"},
+    {"name":"unclassified","severity":"NOTE","convention":"New files are recognised by at least one classifier in config.json","evidence_hint":"git diff --diff-filter=A --name-only"},
+    {"name":"impact-radius","severity":"NOTE","convention":"Inbound callers of changed symbols are addressed or noted","evidence_hint":"dl-explain --impact for current diff"},
+    {"name":"dead-code","severity":"WARNING","convention":"Diff does not introduce new zero-caller functions","evidence_hint":"dl-explain --dead-code"},
+    {"name":"clone-detection","severity":"NOTE","convention":"Diff does not introduce SIMILAR_TO edges with score > 0.8","evidence_hint":"dl-explain --clones"}
+  ],
   "auto_skills": [],
   "quality_hooks": {}
 }
@@ -179,9 +186,28 @@ memory_path = sys.argv[1]
 arch = json.loads(sys.argv[2]) if sys.argv[2] != '{}' else {}
 nodes = json.loads(sys.argv[3]) if sys.argv[3] != '[]' else []
 
+# Preserve any existing recent-deltas block across regenerations.
+# Phase 6 of /dl-feature appends to this block on each feature completion;
+# /dl-sync (full regen via this script) keeps it intact so deltas survive a periodic compact.
+import re, os
+existing_deltas = ""
+if os.path.exists(memory_path):
+    try:
+        prev = open(memory_path).read()
+        m = re.search(
+            r"<!-- devline:section:recent-deltas -->.*?<!-- devline:/section:recent-deltas -->",
+            prev,
+            re.DOTALL,
+        )
+        if m:
+            existing_deltas = m.group(0)
+    except Exception:
+        existing_deltas = ""
+
 lines = ["# Devline Memory\n"]
 
 # Architecture section
+lines.append("<!-- devline:section:architecture -->")
 lines.append("## Architecture\n")
 if arch:
     if arch.get("languages"):
@@ -192,13 +218,25 @@ if arch:
         lines.append(f"**Modules:** {', '.join(arch['clusters'][:5])}\n")
     if arch.get("hotspots"):
         lines.append(f"**Hotspots:** {', '.join(str(h) for h in arch['hotspots'][:5])}\n")
+lines.append("<!-- devline:/section:architecture -->\n")
 
-lines.append("\n## Top Nodes\n")
+lines.append("<!-- devline:section:top-nodes -->")
+lines.append("## Top Nodes\n")
 for n in nodes[:50]:
     name = n.get("name", "?")
     label = n.get("label", "?")
     file_ = n.get("file", "")
     lines.append(f"- **{name}** [{label}] — {file_}\n")
+lines.append("<!-- devline:/section:top-nodes -->\n")
+
+# Recent deltas block: append-target for Phase 6. Preserve content across regens.
+if existing_deltas:
+    lines.append(existing_deltas + "\n")
+else:
+    lines.append("<!-- devline:section:recent-deltas -->")
+    lines.append("## Recent Deltas\n")
+    lines.append("_Appended by Phase 6 of /dl-feature. Compacted into Architecture/Top Nodes by /dl-sync when this block exceeds 20 entries._\n")
+    lines.append("<!-- devline:/section:recent-deltas -->\n")
 
 content = "\n".join(lines)
 # Cap at ~2500 tokens (~10000 chars)
