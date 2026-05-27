@@ -1,7 +1,8 @@
 ---
 name: devline-explain
-description: Business logic explanation — explains a feature, file, or application using memory and code context
+description: Use when a developer needs to understand what a feature, file, or module does and why it exists, grounded in actual source files.
 requires: [dl-sync]
+triggers_on_complete: []
 ---
 
 # /dl-explain — Business Logic Explanation
@@ -21,6 +22,8 @@ EXPLAIN ONLY. This skill never writes, modifies, or suggests code changes.
 ---
 
 ## Pre-Flight (T1 Silent)
+
+Run: `dl-log skill_start --skill dl-explain 2>/dev/null || true`
 
 1. Check `.devline/` exists — if not: HALT — "Run `/dl-init` first."
 2. Check memory staleness:
@@ -190,6 +193,12 @@ Explain:
 | "I found one file, that's enough" | Read up to 5. Call paths and dependencies matter. |
 | "While explaining, I'll suggest a refactor" | This skill explains. `/dl-fix` or `/dl-feature` handles changes. |
 | "memory.md says X, the code says Y — I'll go with memory" | Trust the code. Memory may be stale. State the discrepancy. |
+
+---
+
+CHECKPOINT: "[Devline] Explanation delivered for: <query>"
+
+Run: `dl-log skill_end --skill dl-explain 2>/dev/null || true`
 
 ---
 
