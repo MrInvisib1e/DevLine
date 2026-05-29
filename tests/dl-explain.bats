@@ -117,6 +117,12 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
+@test "dl-explain --node without argument exits 1 with usage message" {
+  run bash -c "cd '$REPO' && DEVLINE_MCP_MOCK=1 '$DF_EXPLAIN' --node"
+  [ "$status" -eq 1 ]
+  [[ "$output" =~ "Usage" ]]
+}
+
 # ─── --project ────────────────────────────────────────────────────────────────
 
 @test "dl-explain --project <name> --rank exits 0" {

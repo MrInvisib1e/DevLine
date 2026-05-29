@@ -129,6 +129,10 @@ for s in symbols:
 
   --node)
     check_mcp
+    if [ ${#ARGS[@]} -lt 2 ]; then
+      echo "Usage: dl-explain --node <file>" >&2
+      exit 1
+    fi
     FILE="${ARGS[1]}"
     mcp_call search_graph \
       "{${PROJECT_ARG}\"file_pattern\":\"$FILE\",\"limit\":20}" | python3 -c "
@@ -176,7 +180,7 @@ for p in paths:
 
   --impact)
     check_mcp
-    mcp_call detect_changes "{${PROJECT_ARG:-}}" | python3 -c "
+    mcp_call detect_changes "{\"project\":\"$PROJECT\"}" | python3 -c "
 import json,sys
 data=json.load(sys.stdin)
 symbols=data.get('affected_symbols',[])
@@ -289,7 +293,7 @@ for r in results:
         else
           # Final fallback: grep
           echo "  (no graph results — falling back to grep)"
-          grep -rn "$QUERY" "$GIT_ROOT" --include='*.js' --include='*.ts' --include='*.py' --include='*.sh' \
+          grep -rnF "$QUERY" "$GIT_ROOT" --include='*.js' --include='*.ts' --include='*.py' --include='*.sh' \
             -l 2>/dev/null | head -10 | while read -r f; do echo "  $f"; done || true
         fi
       fi
