@@ -1,6 +1,6 @@
 {
   "name": "devline",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Devline AI development workflow skills",
   "hooks": "../hooks/hooks-cursor.json"
 }
