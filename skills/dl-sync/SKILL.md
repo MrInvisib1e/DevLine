@@ -90,12 +90,21 @@ if summary_lines:
 else:
     new_content = content
 
+# Re-search new_content for the deltas section (offsets may have shifted after arch re.sub)
+m2 = re.search(
+    r"(<!-- devline:section:recent-deltas -->)(.*?)(<!-- devline:/section:recent-deltas -->)",
+    new_content, re.DOTALL)
+if not m2:
+    open(path, 'w').write(new_content)
+    print(len(entries))
+    sys.exit(0)
+
 # Clear deltas block, keep header
-new_deltas = (m.group(1) + "\n## Recent Deltas\n\n"
+new_deltas = (m2.group(1) + "\n## Recent Deltas\n\n"
     "_Appended by Phase 6 of /dl-feature. Compacted into Architecture/Top Nodes by /dl-sync when this block exceeds 20 entries._\n\n"
-    + m.group(3))
-new_content = new_content[:m.start()] + new_deltas + new_content[m.end():]
-open(path, 'w').write(new_content)
+    + m2.group(3))
+final_content = new_content[:m2.start()] + new_deltas + new_content[m2.end():]
+open(path, 'w').write(final_content)
 print(len(entries))
 PYEOF
 )
