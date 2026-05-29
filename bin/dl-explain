@@ -75,11 +75,14 @@ mock_mcp() {
   # Returns minimal valid responses for each query type
   case "${1:-}" in
     search_graph) echo '{"total":1,"results":[{"name":"MockNode","label":"Function","file_path":"mock.js","in_degree":0,"out_degree":0,"degree":1}],"has_more":false}' ;;
-    trace_call_path) echo "{\"paths\":[]}" ;;
-    detect_changes) echo "{\"affected_symbols\":[]}" ;;
-    query_graph) echo "{\"rows\":[]}" ;;
-    get_architecture) echo "{}" ;;
-    *) echo "{}" ;;
+    trace_call_path) echo '{"paths":[]}' ;;
+    trace_path) echo '{"paths":[["MockCaller","MockNode"]]}' ;;
+    detect_changes) echo '{"affected_symbols":[{"name":"MockSymbol","file":"mock.js","risk":"high"}]}' ;;
+    query_graph) echo '{"rows":[]}' ;;
+    get_architecture) echo '{}' ;;
+    search_code) echo '{"results":[],"raw_matches":[],"total_results":0,"raw_match_count":0}' ;;
+    get_code_snippet) echo '{"snippet":"# mock snippet\nfunction mock() {}","file_path":"mock.js","start_line":1,"end_line":2}' ;;
+    *) echo '{}' ;;
   esac
 }
 
@@ -112,8 +115,15 @@ for n in nodes:
     check_mcp
     FROM="${ARGS[1]:-HEAD~1}"
     TO="${ARGS[2]:-HEAD}"
-    mcp_call query_graph \
-      "{${PROJECT_ARG}\"query\":\"MATCH (n) WHERE n.file_changed_in >= '$FROM' RETURN n LIMIT 50\"}" \
+    mcp_call detect_changes \
+      "{${PROJECT_ARG}\"from_ref\":\"$FROM\",\"to_ref\":\"$TO\"}" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+symbols=data.get('affected_symbols',[])
+print(f'Affected symbols: {len(symbols)}')
+for s in symbols:
+  risk=s.get('risk','unknown')
+  print(f'  [{risk.upper()}] {s.get(\"name\",\"?\")} — {s.get(\"file\",\"\")}')" \
       2>/dev/null || echo "(diff query not supported in this version)"
     ;;
 
@@ -129,13 +139,39 @@ for n in nodes:
   print(f\"{n.get('name','?')} [{n.get('label','?')}] — {n.get('file','')}\")"
     echo "--- Outbound ---"
     BASENAME=$(basename "${ARGS[1]}" | sed 's/\.[^.]*$//')
-    mcp_call trace_call_path \
-      "{${PROJECT_ARG}\"function_name\":\"$BASENAME\",\"direction\":\"outbound\",\"depth\":1}" \
-      2>/dev/null || echo "(trace not available)"
+    # Two-step: resolve exact name via search_graph, then call trace_path
+    RESOLVED_NAME=$(mcp_call search_graph \
+      "{${PROJECT_ARG}\"name_pattern\":\".*${BASENAME}.*\",\"limit\":1}" 2>/dev/null \
+      | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+nodes=data.get('results',data) if isinstance(data,dict) else data
+print(nodes[0].get('name','') if nodes else '')" 2>/dev/null || echo "")
+    if [ -n "$RESOLVED_NAME" ]; then
+      mcp_call trace_path \
+        "{${PROJECT_ARG}\"symbol_name\":\"$RESOLVED_NAME\",\"direction\":\"outbound\",\"depth\":1}" \
+        2>/dev/null | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+paths=data.get('paths',[])
+for p in paths:
+  print(f\"  {' → '.join(str(n) for n in p)}\")" 2>/dev/null || echo "  (no outbound paths)"
+    else
+      echo "  (symbol not found in graph)"
+    fi
     echo "--- Inbound ---"
-    mcp_call trace_call_path \
-      "{${PROJECT_ARG}\"function_name\":\"$BASENAME\",\"direction\":\"inbound\",\"depth\":1}" \
-      2>/dev/null || echo "(trace not available)"
+    if [ -n "$RESOLVED_NAME" ]; then
+      mcp_call trace_path \
+        "{${PROJECT_ARG}\"symbol_name\":\"$RESOLVED_NAME\",\"direction\":\"inbound\",\"depth\":1}" \
+        2>/dev/null | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+paths=data.get('paths',[])
+for p in paths:
+  print(f\"  {' → '.join(str(n) for n in p)}\")" 2>/dev/null || echo "  (no inbound paths)"
+    else
+      echo "  (symbol not found in graph)"
+    fi
     ;;
 
   --impact)
@@ -178,28 +214,106 @@ for r in rows:
     sed -n '2,12p' "$0"
     ;;
 
+  --snippet)
+    check_mcp
+    SNIP_FILE="${ARGS[1]:-}"
+    SNIP_START="${ARGS[2]:-1}"
+    SNIP_END="${ARGS[3]:-10}"
+    if [ -z "$SNIP_FILE" ]; then
+      echo "Usage: dl-explain --snippet <file> <start_line> <end_line>" >&2
+      exit 1
+    fi
+    mcp_call get_code_snippet \
+      "{${PROJECT_ARG}\"file_path\":\"$SNIP_FILE\",\"start_line\":$SNIP_START,\"end_line\":$SNIP_END}" \
+      2>/dev/null | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+snippet=data.get('snippet','')
+if snippet:
+  print(snippet)
+else:
+  print('(no snippet returned)')" 2>/dev/null || echo "(snippet not available)"
+    ;;
+
   *)
     # Default: semantic + structural search for query term
     check_mcp
     QUERY="$MODE"
     echo "=== Structural search: $QUERY ==="
-    mcp_call search_graph \
-      "{${PROJECT_ARG}\"name_pattern\":\"$QUERY\",\"limit\":20}" | python3 -c "
+    SEARCH_RESULT=$(mcp_call search_graph \
+      "{${PROJECT_ARG}\"name_pattern\":\".*${QUERY}.*\",\"limit\":20}" 2>/dev/null || echo '{"results":[]}')
+    RESULT_COUNT=$(echo "$SEARCH_RESULT" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+nodes=data.get('results',data) if isinstance(data,dict) else data
+print(len(nodes))" 2>/dev/null || echo "0")
+    if [ "$RESULT_COUNT" -gt 0 ]; then
+      echo "$SEARCH_RESULT" | python3 -c "
 import json,sys
 data=json.load(sys.stdin)
 nodes=data.get('results',data) if isinstance(data,dict) else data
 for n in nodes:
   print(f\"  {n.get('name','?')} [{n.get('label','?')}] — {n.get('file','')}\")"
+    else
+      # Retry with label:Section (catches markdown/docs repos)
+      SECTION_RESULT=$(mcp_call search_graph \
+        "{${PROJECT_ARG}\"name_pattern\":\".*${QUERY}.*\",\"label\":\"Section\",\"limit\":20}" 2>/dev/null || echo '{"results":[]}')
+      SECTION_COUNT=$(echo "$SECTION_RESULT" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+nodes=data.get('results',data) if isinstance(data,dict) else data
+print(len(nodes))" 2>/dev/null || echo "0")
+      if [ "$SECTION_COUNT" -gt 0 ]; then
+        echo "$SECTION_RESULT" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+nodes=data.get('results',data) if isinstance(data,dict) else data
+for n in nodes:
+  print(f\"  {n.get('name','?')} [{n.get('label','?')}] — {n.get('file','')}\")"
+      else
+        # Try search_code before falling back to grep
+        CODE_RESULT=$(mcp_call search_code \
+          "{${PROJECT_ARG}\"pattern\":\"$QUERY\"}" 2>/dev/null || echo '{"results":[]}')
+        CODE_COUNT=$(echo "$CODE_RESULT" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+results=data.get('results',data.get('raw_matches',[]))
+print(len(results))" 2>/dev/null || echo "0")
+        if [ "$CODE_COUNT" -gt 0 ]; then
+          echo "$CODE_RESULT" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+results=data.get('results',data.get('raw_matches',[]))
+for r in results:
+  print(f\"  {r}\")"
+        else
+          # Final fallback: grep
+          echo "  (no graph results — falling back to grep)"
+          grep -rn "$QUERY" "$GIT_ROOT" --include='*.js' --include='*.ts' --include='*.py' --include='*.sh' \
+            -l 2>/dev/null | head -10 | while read -r f; do echo "  $f"; done || true
+        fi
+      fi
+    fi
     echo ""
     echo "=== Call paths: $QUERY ==="
-    mcp_call trace_call_path \
-      "{${PROJECT_ARG}\"function_name\":\"$QUERY\",\"direction\":\"both\",\"depth\":2}" \
-      2>/dev/null | python3 -c "
+    # Two-step: resolve exact name via search_graph, then call trace_path
+    TRACE_NAME=$(echo "$SEARCH_RESULT" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+nodes=data.get('results',data) if isinstance(data,dict) else data
+print(nodes[0].get('name','') if nodes else '')" 2>/dev/null || echo "")
+    if [ -n "$TRACE_NAME" ]; then
+      mcp_call trace_path \
+        "{${PROJECT_ARG}\"symbol_name\":\"$TRACE_NAME\",\"direction\":\"both\",\"depth\":2}" \
+        2>/dev/null | python3 -c "
 import json,sys
 data=json.load(sys.stdin)
 paths=data.get('paths',[])
 for p in paths:
   print(f\"  {' → '.join(str(n) for n in p)}\")
 " 2>/dev/null || echo "  (no call paths found)"
+    else
+      echo "  (no call paths found)"
+    fi
     ;;
 esac
