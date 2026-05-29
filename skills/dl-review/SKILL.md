@@ -39,7 +39,15 @@ Run checks in severity order: BLOCKING first. Do not proceed to lower-severity c
 3. Read full diff: `git diff <base>...HEAD`
    - If >30 files: read top 30 by node connectivity (run `dl-explain --rank --budget 30` and cross-reference with changed files)
 4. For each changed file: `dl-explain --node <file>` → collect symbol names + inbound/outbound edges
-5. Run `dl-explain --impact` → detect_changes blast radius for current diff
+5. Run structural analysis (T2 Inform — print each result):
+   - `dl-explain --impact` → detect_changes blast radius. Print risk classification for all affected symbols.
+   - `dl-explain --dead-code` → zero-caller functions introduced by diff. Print count + names.
+   - `dl-explain --clones` → near-clone pairs with score > 0.8. Print count + pairs.
+   
+   Collect all three outputs as `PRE_RUN_EVIDENCE`. Store:
+   - `IMPACT_RESULT` — output of `--impact`
+   - `DEAD_CODE_RESULT` — output of `--dead-code`
+   - `CLONES_RESULT` — output of `--clones`
 
 CHECKPOINT: "[Devline] dl-review Phase 1 done: context loaded"
 
@@ -74,6 +82,10 @@ Each check below runs as its **own subagent Task**, dispatched in parallel from 
 | `description` | `dl-review: <check-name>` (≤7 words) |
 | `prompt` | Combine: (a) the single check's row from the table below, (b) full diff `git diff <base>...HEAD` (or top-30 subset from Phase 1), (c) the relevant excerpt of `memory.md` for that convention, (d) any matching `decisions.md` overrides for the changed files. |
 | `output contract` | Return ONLY a JSON array: `[{severity, file, line, convention, finding}]` (empty array if no findings). No prose. |
+| `dead-code pre-run` | Include `DEAD_CODE_RESULT` verbatim in the dead-code check subagent prompt — the subagent does NOT need to re-run `dl-explain --dead-code` |
+| `clones pre-run` | Include `CLONES_RESULT` verbatim in the clone-detection check subagent prompt — the subagent does NOT need to re-run `dl-explain --clones` |
+
+> **Why:** Running these in Phase 1 (single MCP call, results in context) means each subagent receives pre-computed evidence. This reduces total MCP calls from `2 × N_checks` to 2 for these tools, and ensures consistent data across subagents dispatched in the same review run.
 
 **Parallelism rule:** Dispatch ALL active checks (default checks + each user-defined check from `config.json.review_checks`) in a single assistant message with multiple `Task` blocks. Wait for all to return. Do NOT dispatch sequentially — that defeats the purpose.
 
