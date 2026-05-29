@@ -64,20 +64,30 @@ cat .devline/memory.md
 
 ### 2b. Structural search (T2 Inform)
 
-For `feature` or `file` scope, run:
+For `feature` or `file` scope:
+
+**Schema probe (T1 Silent):** Before searching, call `get_graph_schema` via the binary to determine available node labels:
 
 ```bash
-# dl-explain is the graph search CLI binary (~/.devline/bin/dl-explain), not this skill
-dl-explain <query>
-# or for file scope:
-dl-explain --node <path>
+dl-explain --schema
 ```
+
+If `Function` nodes are absent but `Section` nodes exist (common in bash/markdown repos), bias all subsequent searches toward `label:Section`.
+
+**Four-tier fallback search:**
+
+| Tier | Command | Advance when |
+|------|---------|-------------|
+| 1 | `dl-explain <query>` (structural graph search) | 0 results |
+| 2 | `dl-explain <query>` with explicit `label:Section` | 0 results |
+| 3 | `search_code` via MCP (content/grep-style search) | 0 results |
+| 4 | `grep -r <query> . --include="*.ts" --include="*.js" --include="*.py" --include="*.md" -l` | last resort |
 
 | Result | Action |
 |--------|--------|
-| Symbols found | Note relevant file paths and call relationships |
-| `dl-explain` fails (not found, non-zero exit, or no results) | T2 Warn: "[Devline] Graph query failed — falling back to file search." Run `grep -r <query> . --include="*.ts" --include="*.js" --include="*.py" -l` |
-| DEFAULT | Continue with whatever was found |
+| Symbols found at any tier | Note file paths and relationships |
+| All tiers return 0 | T2 Warn + HALT with E-NF message |
+| DEFAULT | Continue with found results |
 
 ### 2c. Read source files
 
@@ -87,8 +97,8 @@ READ: up to 5 files identified by the graph or file search. DO NOT read entire d
 
 | File size | What to read |
 |-----------|-------------|
-| ≤ 300 lines | Read completely |
-| > 300 lines | Read public interface (exports, top-level declarations, key class/function signatures). Use `grep -n "export\|function\|class\|def " <file>` to locate entry points, then read those regions. |
+| ≤ 300 lines | Read completely via `Read` tool |
+| > 300 lines | Use `dl-explain --snippet <file> <start> <end>` to read only the relevant region identified by search. Saves ~80% token cost vs full file read. Locate entry points first via `grep -n "export\|function\|class\|def " <file>`, then snippet those regions. |
 | DEFAULT | Read completely |
 
 If nothing is found after both graph search and grep:

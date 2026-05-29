@@ -39,6 +39,80 @@ Run: `dl-init --write-memory`
 
 Print: "Memory regenerated — last_synced=`{HEAD[:7]}`"
 
+### Step 2.3 — Compact recent-deltas (T1 Silent / T2 Inform)
+
+Count entries in the `recent-deltas` section of `.devline/memory.md`.
+
+| Condition | Action |
+|-----------|--------|
+| `recent-deltas` has ≤20 entries | T1 Silent — no-op |
+| `recent-deltas` has >20 entries | Run compaction script. T2 Inform: `[Devline] recent-deltas compacted: N entries → Architecture` |
+| `memory.md` absent | T1 Silent — skip |
+| DEFAULT | T1 Silent |
+
+```bash
+COMPACT_COUNT=$(python3 - .devline/memory.md << 'PYEOF'
+import re, sys, collections
+
+path = sys.argv[1]
+try:
+    content = open(path).read()
+except FileNotFoundError:
+    sys.exit(1)
+
+m = re.search(
+    r"(<!-- devline:section:recent-deltas -->)(.*?)(<!-- devline:/section:recent-deltas -->)",
+    content, re.DOTALL)
+if not m:
+    sys.exit(1)
+
+deltas_block = m.group(2)
+entries = [l.strip() for l in deltas_block.split('\n') if l.strip().startswith('- ')]
+if len(entries) <= 20:
+    sys.exit(1)
+
+# Extract file mentions as architecture signals
+files = collections.Counter()
+for e in entries:
+    for word in e.split():
+        if '/' in word and '.' in word:
+            files[word.strip('`.,)')] += 1
+
+summary_lines = [f"- **Hotspot:** `{f}` (changed {c}x in recent features)"
+                 for f, c in files.most_common(5) if c > 1]
+
+if summary_lines:
+    arch_insert = '\n'.join(summary_lines)
+    new_content = re.sub(
+        r"(<!-- devline:section:architecture -->.*?)(<!-- devline:/section:architecture -->)",
+        lambda mo: mo.group(0).rstrip('\n') + '\n' + arch_insert + '\n',
+        content, flags=re.DOTALL)
+else:
+    new_content = content
+
+# Re-search new_content for the deltas section (offsets may have shifted after arch re.sub)
+m2 = re.search(
+    r"(<!-- devline:section:recent-deltas -->)(.*?)(<!-- devline:/section:recent-deltas -->)",
+    new_content, re.DOTALL)
+if not m2:
+    open(path, 'w').write(new_content)
+    print(len(entries))
+    sys.exit(0)
+
+# Clear deltas block, keep header
+new_deltas = (m2.group(1) + "\n## Recent Deltas\n\n"
+    "_Appended by Phase 6 of /dl-feature. Compacted into Architecture/Top Nodes by /dl-sync when this block exceeds 20 entries._\n\n"
+    + m2.group(3))
+final_content = new_content[:m2.start()] + new_deltas + new_content[m2.end():]
+open(path, 'w').write(final_content)
+print(len(entries))
+PYEOF
+)
+if [ $? -eq 0 ] && [ -n "$COMPACT_COUNT" ]; then
+  echo "[Devline] recent-deltas compacted: $COMPACT_COUNT entries → Architecture"
+fi
+```
+
 ### Step 2.5 — Config migrations (T1 Silent, T2 Inform on actual migration)
 
 Apply each migration in the registry from `skills/_shared.md` → "Config Migration". The `review_checks_v2` migration in particular upgrades pre-0.7 bare-string entries to the structured object form that `/dl-review` Phase 2 requires.
@@ -46,6 +120,31 @@ Apply each migration in the registry from `skills/_shared.md` → "Config Migrat
 Run the canonical migration helper from `_shared.md`. On `migrated` outcome: T2 Inform `[Devline] config.json migrated: review_checks upgraded to v2 (objects)`. On `noop`: T1 Silent.
 
 — because skipping this step leaves `/dl-review` Phase 2 dispatching subagents with one-word prompts, which silently hallucinate the rule. The migration is idempotent and cheap, so it runs on every sync.
+
+### Step 2.6 — Sync decisions.md to MCP ADR store (T1 Silent / T2 Inform / T2 Warn)
+
+Check if `.devline/decisions.md` exists and has content, then sync it to the MCP ADR store via `manage_adr`.
+
+| Condition | Action |
+|-----------|--------|
+| `decisions.md` absent or empty | T1 Silent — skip |
+| `manage_adr` unavailable | T2 Warn: `[Devline] manage_adr unavailable — ADR sync skipped` |
+| Content present + manage_adr available | Run sync. T2 Inform: `[Devline] decisions.md synced to MCP ADR store` |
+| DEFAULT | T1 Silent — skip |
+
+```bash
+if [ -f .devline/decisions.md ] && [ -s .devline/decisions.md ]; then
+  MCP_PROJECT=$(echo "$(git rev-parse --show-toplevel 2>/dev/null)" | sed 's|^/||; s|/|-|g')
+  DECISIONS_CONTENT=$(python3 -c "import json,sys; print(json.dumps(open('.devline/decisions.md').read()))")
+  codebase-memory-mcp cli manage_adr \
+    "{\"project\":\"$MCP_PROJECT\",\"action\":\"update\",\"content\":$DECISIONS_CONTENT}" \
+    2>/dev/null && \
+    echo "[Devline] decisions.md synced to MCP ADR store" || \
+    echo "[Devline] manage_adr unavailable — ADR sync skipped"
+fi
+```
+
+**Why:** ADRs stored in the MCP graph surface through `get_architecture` calls made by all skills — meaning a decision recorded in `decisions.md` becomes visible to every future plan, review, and fix without each skill explicitly reading the file.
 
 ### Step 2.7 — Refresh session index (T1 Silent)
 

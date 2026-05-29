@@ -117,6 +117,12 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
+@test "dl-explain --node without argument exits 1 with usage message" {
+  run bash -c "cd '$REPO' && DEVLINE_MCP_MOCK=1 '$DF_EXPLAIN' --node"
+  [ "$status" -eq 1 ]
+  [[ "$output" =~ "Usage" ]]
+}
+
 # ─── --project ────────────────────────────────────────────────────────────────
 
 @test "dl-explain --project <name> --rank exits 0" {
@@ -150,4 +156,36 @@ teardown() {
   rm -rf "$tmpdir"
   [ "$status" -eq 1 ]
   [[ "$output" =~ "Not a git repo" ]] || [[ "$output" =~ "not inside a git" ]]
+}
+
+# ─── --node trace_path ────────────────────────────────────────────────────────
+
+@test "dl-explain --node calls trace_path not trace_call_path" {
+  run bash -c "cd '$REPO' && DEVLINE_MCP_MOCK=1 '$DF_EXPLAIN' --node bin/dl-explain"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Outbound" ]]
+  [[ "$output" =~ "Inbound" ]]
+}
+
+# ─── --diff detect_changes ────────────────────────────────────────────────────
+
+@test "dl-explain --diff returns affected symbols output" {
+  run bash -c "cd '$REPO' && DEVLINE_MCP_MOCK=1 '$DF_EXPLAIN' --diff HEAD~1 HEAD"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Affected symbols" ]]
+}
+
+# ─── --snippet ────────────────────────────────────────────────────────────────
+
+@test "dl-explain --snippet returns snippet from MCP" {
+  run bash -c "cd '$REPO' && DEVLINE_MCP_MOCK=1 '$DF_EXPLAIN' --snippet bin/dl-explain 86 95"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "mock snippet" ]]
+}
+
+# ─── zero results graceful handling ───────────────────────────────────────────
+
+@test "dl-explain query with zero results does not crash" {
+  run bash -c "cd '$REPO' && DEVLINE_MCP_MOCK=1 '$DF_EXPLAIN' completely_nonexistent_symbol_xyz"
+  [ "$status" -eq 0 ]
 }
